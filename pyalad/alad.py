@@ -21,9 +21,9 @@ if __name__ == '__main__':
 
     set_seed(opts.randseed)
 
-    samples, ensembles, metrics = alad(opts)
+    alad_results = alad(opts)
 
-    summarize_alad_to_csv(samples=samples, ensembles=ensembles, metrics=metrics, opts=opts)
+    write_sequential_results_to_csv(alad_results, opts)
 
     print "completed alad %s for %s" % (opts.update_type_str(), opts.dataset,)
 

@@ -62,7 +62,7 @@ def generate_model_from_loda_result(lodares, samples, labels):
     m = ncol(w)
 
     orderedprojs = None
-    if True:
+    if False:
         # Sort projections on the individual AUCs (by cheating)
         # This does not change any performance for ALAD, just helps
         # in visualizing performance based on individual histogram quality later.

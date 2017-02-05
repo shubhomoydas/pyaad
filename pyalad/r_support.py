@@ -107,6 +107,8 @@ def ncol(x):
 
 
 def rbind(m1, m2):
+    if m1 is None:
+        return np.copy(m2)
     return np.append(m1, m2, axis=0)
 
 

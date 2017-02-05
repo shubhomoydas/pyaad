@@ -148,8 +148,8 @@ def test_ensemble_load(opts):
 
 
 def test_alad(opts):
-    samples, ensembles, metrics = alad(opts)
-    summarize_alad_to_csv(samples=samples, ensembles=ensembles, metrics=metrics, opts=opts)
+    alad_results = alad(opts)
+    write_sequential_results_to_csv(alad_results, opts)
     logger.debug("completed test_alad...")
 
 

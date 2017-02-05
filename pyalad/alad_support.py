@@ -86,6 +86,21 @@ class SequentialResults(object):
         self.num_seen_baseline = num_seen_baseline
 
 
+def summarize_ensemble_num_seen(ensemble, metrics, fid=0, runidx=0):
+    nqueried = len(metrics.queried)
+    num_seen = np.zeros(shape=(1, nqueried + 2))
+    num_seen_baseline = np.zeros(shape=(1, nqueried + 2))
+
+    num_seen[0, 0:2] = [fid, runidx]
+    num_seen[0, 2:(num_seen.shape[1])] = np.cumsum(ensemble.labels[metrics.queried])
+
+    qlbls = ensemble.labels[ensemble.ordered_anom_idxs[0:nqueried]]
+    num_seen_baseline[0, 0:2] = [fid, runidx]
+    num_seen_baseline[0, 2:(num_seen_baseline.shape[1])] = np.cumsum(qlbls)
+
+    return num_seen, num_seen_baseline
+
+
 def summarize_alad_metrics(ensembles, metrics_struct):
     nqueried = len(metrics_struct.metrics[0][0].queried)
     num_seen = np.zeros(shape=(0, nqueried+2))
@@ -308,9 +323,15 @@ def run_alad_simple(samples, labels, opts, rnd_seed=0):
     starttime_feedback = timer()
 
     metrics = alad_ensemble(ensemble, opts)
+    num_seen = None
+    num_seen_baseline = None
 
     if metrics is not None:
         save_alad_metrics(metrics, opts)
+        num_seen, num_seen_baseline = summarize_ensemble_num_seen(
+            ensemble, metrics, fid=opts.fid)
+        logger.debug("baseline: \n%s" % str([v for v in num_seen_baseline[0, :]]))
+        logger.debug("num_seen: \n%s" % str([v for v in num_seen[0, :]]))
 
     endtime_feedback = timer()
 
@@ -318,14 +339,14 @@ def run_alad_simple(samples, labels, opts, rnd_seed=0):
     logger.debug("Processed [%s] file %d, auc: %f, time: %f sec(s); completed at %s" %
                  (opts.dataset, opts.fid, ensemble.auc, tdiff, endtime_feedback))
 
-    return [ensemble], [metrics]
+    return num_seen, num_seen_baseline
 
 
 def run_alad_multi(samples, labels, opts, rnd_seed=0):
 
     ensemblemanager = EnsembleManager.get_ensemble_manager(opts)
-    all_models = []
-    all_metrics = []
+    all_num_seen = None
+    all_num_seen_baseline = None
 
     runidxs = opts.get_runidxs()
     for runidx in runidxs:
@@ -356,16 +377,21 @@ def run_alad_multi(samples, labels, opts, rnd_seed=0):
 
         metrics = alad_ensemble(ensemble, opts)
         if metrics is not None:
-            all_models.append(ensemble)
-            all_metrics.append(metrics)
             save_alad_metrics(metrics, opts)
+
+            num_seen, num_seen_baseline = summarize_ensemble_num_seen(
+                ensemble, metrics, fid=opts.fid, runidx=runidx)
+            all_num_seen = rbind(all_num_seen, num_seen)
+            all_num_seen_baseline = rbind(all_num_seen_baseline, num_seen_baseline)
+            logger.debug("baseline: \n%s" % str([v for v in num_seen_baseline[0, :]]))
+            logger.debug("num_seen: \n%s" % str([v for v in num_seen[0, :]]))
 
         endtime_feedback = timer()
         tdiff = difftime(endtime_feedback, starttime_feedback, units="secs")
         logger.debug("Processed [%s] file %d, auc: %f, time: %f sec(s); completed at %s" %
                      (opts.dataset, opts.fid, ensemble.auc, tdiff, endtime_feedback))
 
-    return all_models, all_metrics
+    return all_num_seen, all_num_seen_baseline
 
 
 def alad(opts):
@@ -379,9 +405,8 @@ def alad(opts):
 
     logger.debug("loaded all %s samples..." % (opts.dataset,))
 
-    allmetrics = MetricsCollection(fids=opts.get_fids(),
-                                   runidxs=opts.get_runidxs(), metrics=[])
-    allmodels = []
+    all_num_seen = None
+    all_num_seen_baseline = None
     for i in range(len(allsamples)):
         # args.sparsity = 0.0 # include all features
         opts.sparsity = None  # loda default d*(1-1/sqrt(d)) vectors will be zero
@@ -401,15 +426,15 @@ def alad(opts):
         logger.debug("topK: %d, budget: %d, tau: %f" % (topK, budget, opts.tau))
 
         if opts.is_simple_run():
-            fmodels, fmetrics = run_alad_simple(samples, labels, opts, rnd_seed)
+            num_seen_summary = run_alad_simple(samples, labels, opts, rnd_seed)
         else:
-            fmodels, fmetrics = run_alad_multi(samples, labels, opts, rnd_seed)
+            num_seen_summary = run_alad_multi(samples, labels, opts, rnd_seed)
 
-        allmodels.append(fmodels)
-        allmetrics.metrics.append(fmetrics)
+        all_num_seen = rbind(all_num_seen, num_seen_summary[0])
+        all_num_seen_baseline = rbind(all_num_seen_baseline, num_seen_summary[1])
 
         logger.debug("completed %s fid %d" % (opts.dataset, fid,))
 
-    return allsamples, allmodels, allmetrics
+    return SequentialResults(num_seen=all_num_seen, num_seen_baseline=all_num_seen_baseline)
 
 
