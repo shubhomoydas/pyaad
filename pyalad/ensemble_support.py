@@ -115,6 +115,10 @@ class Ensemble(object):
         self.original_indexes = original_indexes
         self.auc = auc
         self.model = model
+
+        if original_indexes is None:
+            self.original_indexes = np.arange(samples.shape[0])
+
         if agg_scores is not None and ordered_anom_idxs is None:
             self.ordered_anom_idxs = order(agg_scores, decreasing=True)
 
