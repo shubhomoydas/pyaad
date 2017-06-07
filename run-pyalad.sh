@@ -183,14 +183,14 @@ ORIG_FEATURES_PATH=${DATASET_DIR}/fullsamples
 if [[ "$OPR" == "3" ]]; then
     RESULTS_PATH="${RESULTS_PATH}/ai2results"
 else
-    RESULTS_PATH="${BASE_DIR}/results/$DATASET/${INFERENCE_NAME}_sensitivity_tau${TAU}_ha${MAX_ANOMALIES_CONSTRAINT}_hn${MAX_NOMINALS_CONSTRAINT}${TAU_SIG}${OBV_SIG}${AATP_SIG}${WITH_PRIOR_SIG}${RAND_TAU_INST_START_SIG}"
+    RESULTS_PATH="results/$DATASET/${INFERENCE_NAME}_sensitivity_tau${TAU}_ha${MAX_ANOMALIES_CONSTRAINT}_hn${MAX_NOMINALS_CONSTRAINT}${TAU_SIG}${OBV_SIG}${AATP_SIG}${WITH_PRIOR_SIG}${RAND_TAU_INST_START_SIG}"
     if [ "$INFERENCE_TYPE" == "6" ]; then
         # ATGP
-        RESULTS_PATH="${BASE_DIR}/results/$DATASET/${INFERENCE_NAME}"
+        RESULTS_PATH="results/$DATASET/${INFERENCE_NAME}"
     fi
 fi
 
-MODEL_PATH="${DATASET_DIR}"
+MODEL_PATH="models/$DATASET"
 if [[ "$MODEL_PATH" != "" && "$ENSEMBLE_TYPE" == "loda" ]]; then
     MODEL_PATH="${MODEL_PATH}/fullmodel/pyalad"
     mkdir -p "${MODEL_PATH}"
