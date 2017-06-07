@@ -25,3 +25,7 @@ The output will have two files: file '*-baseline.csv' shows the number of true a
 Sample run command:
 --------------------
 python pyalad/alad.py --startcol=2 --labelindex=1 --header --randseed=42 --dataset=toy --datafile=/Users/moy/work/git/pyaad/sampledata/toy.csv --scoresfile=/Users/moy/work/git/pyaad/sampledata/toy_scores.csv --querytype=1 --inferencetype=3 --constrainttype=1 --sigma2=0.5 --reps=1 --reruns=1 --budget=35 --tau=0.03 --Ca=100 --Cn=1 --Cx=1000 --withprior --unifprior --runtype=simple --log_file=/Users/moy/work/temp/pyaad.log --resultsdir=/Users/moy/work/temp --ensembletype=regular --debug
+
+R Version
+--------------------
+An older implementation in R is available at: https://github.com/shubhomoydas/aad
