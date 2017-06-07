@@ -37,18 +37,17 @@ def get_iter_grad_loss_vector (x, y, hf, qval, s, Ca, Cn):
 #
 # iterative gradient loss:
 #   \sum C * l(w; qval, (x,y))
-def iter_grad_loss(w, xi, yi, qval, Ca, Cn):
+def iter_grad_loss(w, x, y, hf, qval, s, Ca, Cn):
     loss_a = 0  # loss w.r.t w for anomalies
     loss_n = 0  # loss w.r.t w for nominals
     n_anom = 0
     n_noml = 0
-    vals = xi.dot(w)
-    for i in range(len(yi)):
-        if yi[i] == 1 and vals[i] < qval:
-            loss_a = loss_a + Ca * np.exp(qval - vals[i])
+    for i in hf:
+        if y[i] == 1 and s[i] < qval:
+            loss_a = loss_a + Ca * np.exp(qval - s[i])
             n_anom += 1
-        elif yi[i] == 0 and vals[i] >= qval:
-            loss_n = loss_n + Cn * np.exp(vals[i] - qval)
+        elif y[i] == 0 and s[i] >= qval:
+            loss_n = loss_n + Cn * np.exp(s[i] - qval)
             n_noml += 1
         else:
             # no loss
@@ -67,7 +66,7 @@ def weight_update_iter_grad(x, y, hf,
     w = rep(1.0 / m, m)
     s = x.dot(w)
     qval = quantile(s, (1.0 - (topK*1.0/float(nrow(x))))*100.0)
-    loss = iter_grad_loss(w, x, y, qval, Ca, Cn)
+    loss = iter_grad_loss(w, x, y, hf, qval, s, Ca, Cn)
     loss_old = 0
 
     while not opt_success and k <= max_iters:
@@ -85,7 +84,7 @@ def weight_update_iter_grad(x, y, hf,
                 w = rep(1.0 / m, m)
             s = x.dot(w)
             qval = quantile(s, (1.0 - (topK*1.0/float(nrow(x))))*100.0)
-            loss = iter_grad_loss(w, x, y, qval, Ca, Cn)
+            loss = iter_grad_loss(w, x, y, hf, qval, s, Ca, Cn)
             if np.abs(loss - loss_old) <= delta:
                 opt_success = True
             # print(sprintf("Iter: %d; old loss: %f; loss: %f; del_loss: %f", k, loss_old, loss, abs(loss - loss_old)))

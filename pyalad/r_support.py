@@ -15,6 +15,7 @@ from statsmodels.distributions.empirical_distribution import ECDF
 import ranking
 from ranking import Ranking
 
+from scipy.sparse import csr_matrix
 import scipy.stats as stats
 import scipy.optimize as opt
 
@@ -78,7 +79,10 @@ def matrix(d, nrow=None, ncol=None, byrow=False):
     if not d_rows * d_cols == nrow * ncol:
         raise ValueError("input dimensions (%d, %d) not compatible with output dimensions (%d, %d)" %
                          (d_rows, d_cols, nrow, ncol))
-    return np.reshape(d, (nrow, ncol), order=order)
+    if isinstance(d, csr_matrix):
+        return d.reshape((nrow, ncol), order=order)
+    else:
+        return np.reshape(d, (nrow, ncol), order=order)
 
 
 # Ranks in decreasing order

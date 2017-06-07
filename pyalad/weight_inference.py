@@ -8,6 +8,50 @@ def get_aatp_quantile(x, w, topK):
     return quantile(s, (1.0 - (topK*1.0/float(nrow(x))))*100.0)
 
 
+def get_score_ranges(x, w):
+    s = x.dot(w)
+    qvals = list()
+    qvals.append(np.min(s))
+    for i in range(1, 10):
+        qvals.append(quantile(s, (i * 10.0)))
+    qvals.append(np.max(s))
+    return qvals
+
+
+def order_by_diff_from_tau(x, w, ha, hn, x_tau):
+    """
+    Orders labeled anomalies and nominal instances (in ha, hn resp.)
+    by the difference between their scores and the tau-th instance score.
+
+    For an anomaly x \in ha, sort ha in increasing order by:
+        score(x) - score(x_tau)
+
+    For a nominal x \in hn, sort hn in increasing order by:
+        score(x_tau) - score(x)
+
+    :param x:
+    :param w:
+    :param ha:
+    :param hn:
+    :return:
+    """
+    s = x.dot(w)
+    qtau = x_tau.dot(w)
+    if len(ha) > 0:
+        diff_ha = s[ha] - qtau
+        # logger.debug("diff_ha: %s" % str(list(diff_ha)))
+        new_ha = ha[order(diff_ha)]
+    else:
+        new_ha = ha.copy()  # return copy of empty array
+    if len(hn) > 0:
+        diff_hn = qtau - s[hn]
+        # logger.debug("diff_hn: %s" % str(list(diff_hn)))
+        new_hn = hn[order(diff_hn)]
+    else:
+        new_hn = hn.copy()  # return copy of empty array
+    return new_ha, new_hn
+
+
 def prepare_aatp_optim_functions(theta, xi, yi, qval, Ca=1.0, Cn=1.0, Cx=1.0,
                                  withprior=False, w_prior=None, w_old=None, sigma2=1.0, nu=1.0,
                                  optimlib=OPTIMLIB_SCIPY):
@@ -51,6 +95,12 @@ def prepare_aatp_optim_functions(theta, xi, yi, qval, Ca=1.0, Cn=1.0, Cx=1.0,
     return f, grad, hess
 
 
+def get_tau_ranked_instance(x, w, tau_rank):
+    s = x.dot(w)
+    ps = order(s, decreasing=True)[tau_rank]
+    return matrix(x[ps, :], nrow=1)
+
+
 def weight_update_aatp_pairwise_constrained_inner(x, y, hf, w, qval,
                                                   Ca=1.0, Cn=1.0, Cx=1.0,
                                                   withprior=False, w_prior=None,
@@ -58,6 +108,9 @@ def weight_update_aatp_pairwise_constrained_inner(x, y, hf, w, qval,
                                                   pseudoanomrank=0,
                                                   nu=1.0,
                                                   pseudoanomrank_always=False,
+                                                  order_by_violated=False,
+                                                  ignore_aatp_loss=False,
+                                                  random_instance_at_start=False,
                                                   constraint_type=AAD_CONSTRAINT_PAIRWISE,
                                                   max_anomalies_in_constraint_set=1000,
                                                   max_nominals_in_constraint_set=1000,
@@ -80,42 +133,94 @@ def weight_update_aatp_pairwise_constrained_inner(x, y, hf, w, qval,
     :param pseudoanomrank:
     :param nu:
     :param pseudoanomrank_always:
+    :param order_by_violated:
+    :param ignore_aatp_loss:
+    :param random_instance_at_start:
     :param constraint_type:
     :param max_anomalies_in_constraint_set:
     :param max_nominals_in_constraint_set:
     :param optimlib:
     :return:
     """
+
+    # whether to ignore anomalies from the pair-wise constraints.
+    # If add_nominal_constraints_only is True, the anomalies would
+    # still be part of the AATP hinge-loss, just absent from the constraints
+    add_nominal_constraints_only = False
+
+    # whether to ignore anomalies completely.
+    # If ignore_anomalies is True, they would neither be part
+    # of AATP hinge-loss, nor of constraints.
+    ignore_anomalies = False
+
+    # whether to ignore AATP hinge loss.
+    # if ignored, then only constraints and prior will be used.
+    # ignore_aatp_loss = False
+
+    # logger.debug("order_by_violated: %s" % str(order_by_violated))
+
+    # logger.debug("pseudoanomrank: %d, constraint type: %d" % (pseudoanomrank, constraint_type))
+
+    if ignore_anomalies:
+        # remove all anomalies from feedback list
+        # logger.debug("hf: %s" % str(zip(hf, y[hf])))
+        hf = np.array([v for v in hf if y[v] == 0])
+        if False and len(hf > 0):
+            logger.debug("hf: %s" % str(zip(hf, y[hf])))
+
     nf = len(hf)
     if nf == 0:
         return w, None
 
     m = ncol(x)
+
+    x_tau = None
+    if constraint_type == AAD_CONSTRAINT_TAU_INSTANCE and pseudoanomrank > 0:
+        x_tau = get_tau_ranked_instance(x, w, pseudoanomrank)
+
     xi_orig = matrix(x[hf, :], nrow=nf, ncol=m)
     yi_orig = y[hf]
     xi = xi_orig.copy()
     yi = yi_orig.copy()
-    ha = np.where(yi == 1)[0]
-    if ((len(ha) == 0 and pseudoanomrank > 0) or
-            (pseudoanomrank_always and pseudoanomrank > 0)):
+
+    if add_nominal_constraints_only:
+        # remove all anomalies from the list ha which
+        # is used to construct the pair-wise constraints
+        ha = np.array([], dtype=int)
+    else:
+        ha = np.where(yi == 1)[0]
+
+    if len(ha) == 0 and pseudoanomrank > 0 \
+            and constraint_type != AAD_CONSTRAINT_TAU_INSTANCE:
         # get the pseudo anomaly instance
-        s = x.dot(w)
-        ps = order(s, decreasing=True)[pseudoanomrank]
-        xi = rbind(xi, matrix(x[ps, :], nrow=1))
+        xi = rbind(xi, get_tau_ranked_instance(x, w, pseudoanomrank))
         yi = append(yi, 1)
         ha = append(ha, len(hf))
 
     hn = np.where(yi == 0)[0]
 
-    # select only a subset of anomaly datapoints for constraints
+    if order_by_violated:
+        if x_tau is None:
+            x_tau = get_tau_ranked_instance(x, w, pseudoanomrank)
+        ha, hn = order_by_diff_from_tau(xi, w, ha, hn, x_tau)
+
+    # select only a subset of anomaly data points for constraints
     if len(ha) > max_anomalies_in_constraint_set:
-        constr_ha = ha[sample(range(len(ha)), max_anomalies_in_constraint_set)]
+        if order_by_violated:
+            # retain the most violated instances
+            constr_ha = ha[range(max_anomalies_in_constraint_set)]
+        else:
+            constr_ha = ha[sample(range(len(ha)), max_anomalies_in_constraint_set)]
     else:
         constr_ha = ha
 
-    # select only a subset of nominal datapoints for constraints
+    # select only a subset of nominal data points for constraints
     if len(hn) > max_nominals_in_constraint_set:
-        constr_hn = hn[sample(range(len(hn)), max_nominals_in_constraint_set)]
+        if order_by_violated:
+            # retain the most violated instances
+            constr_hn = hn[range(max_nominals_in_constraint_set)]
+        else:
+            constr_hn = hn[sample(range(len(hn)), max_nominals_in_constraint_set)]
     else:
         constr_hn = hn
 
@@ -130,7 +235,7 @@ def weight_update_aatp_pairwise_constrained_inner(x, y, hf, w, qval,
         # logger.debug("npairs: %d" % (npairs,))
 
     # theta, bounds, ui, ci, a, b = (None, None, None, None, None, None)
-    theta, bounds, ui, ci, a, b = setup_constraints(xi, yi, constr_ha, constr_hn,
+    theta, bounds, ui, ci, a, b = setup_constraints(xi, yi, constr_ha, constr_hn, x_tau=x_tau,
                                                     constraint_type=constraint_type, optimlib=optimlib)
 
     if False:
@@ -143,6 +248,10 @@ def weight_update_aatp_pairwise_constrained_inner(x, y, hf, w, qval,
     # In the below call we send the xi_orig and yi_orig which
     # *do not* contain the pseudo anomaly. Pseudo anomaly is
     # only used to create the constraint matrices
+
+    if ignore_aatp_loss:
+        xi_orig = matrix(np.zeros(0), nrow=0, ncol=ncol(xi_orig))
+        yi_orig = np.zeros(0, dtype=int)
 
     f, grad, hess = prepare_aatp_optim_functions(theta, xi=xi_orig, yi=yi_orig, qval=qval,
                                                  Ca=Ca, Cn=Cn, Cx=Cx,
@@ -192,6 +301,9 @@ def weight_update_aatp_slack_pairwise_constrained(x, y, hf, w, qval,
                                                   w_old=None, sigma2=1.0,
                                                   pseudoanomrank=0,
                                                   nu=1.0, pseudoanomrank_always=False,
+                                                  order_by_violated=False,
+                                                  ignore_aatp_loss=False,
+                                                  random_instance_at_start=False,
                                                   constraint_type=AAD_CONSTRAINT_PAIRWISE,
                                                   max_anomalies_in_constraint_set=1000,
                                                   max_nominals_in_constraint_set=1000,
@@ -213,6 +325,9 @@ def weight_update_aatp_slack_pairwise_constrained(x, y, hf, w, qval,
             sigma2=sigma2,
             pseudoanomrank=pseudoanomrank,
             nu=nu, pseudoanomrank_always=pseudoanomrank_always,
+            order_by_violated=order_by_violated,
+            ignore_aatp_loss=ignore_aatp_loss,
+            random_instance_at_start=random_instance_at_start,
             constraint_type=constraint_type,
             max_anomalies_in_constraint_set=max_anomalies_in_constraint_set,
             max_nominals_in_constraint_set=max_nominals_in_constraint_set,
@@ -230,6 +345,9 @@ def weight_update_aatp_slack_pairwise_constrained(x, y, hf, w, qval,
                 sigma2=sigma2,
                 pseudoanomrank=pseudoanomrank,
                 nu=nu, pseudoanomrank_always=pseudoanomrank_always,
+                order_by_violated=order_by_violated,
+                ignore_aatp_loss=ignore_aatp_loss,
+                random_instance_at_start=random_instance_at_start,
                 constraint_type=constraint_type,
                 max_anomalies_in_constraint_set=max_anomalies_in_constraint_set,
                 max_nominals_in_constraint_set=max_nominals_in_constraint_set,
@@ -238,7 +356,7 @@ def weight_update_aatp_slack_pairwise_constrained(x, y, hf, w, qval,
             logger.debug(w_soln)
             logger.debug(w_solx)
         opt_success = True
-    except BaseException, e:
+    except BaseException as e:
         # logger.debug(exception_to_string(sys.exc_info()))
         logger.warning("Optimization Err '%s'; continuing with previous parameters." % (str(e),))
     if opt_success:

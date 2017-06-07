@@ -1,0 +1,30 @@
+
+# ===========
+# run vanilla
+# ===========
+bash ./run-if_aad.sh toy2 35 1 0.03
+bash ./run-if_aad.sh toy 35 10 0.03
+
+# ===========
+# Run pyalad on laptop/desktop
+# ===========
+
+nohup bash ./run-if_aad.sh toy 60 10 0.03 &
+
+# easy datasets
+nohup bash ./run-if_aad.sh kddcup_sub 60 10 0.03 &
+nohup bash ./run-if_aad.sh shuttle_sub 60 10 0.03 &
+
+# harder
+nohup bash ./run-if_aad.sh abalone 60 10 0.03 &
+nohup bash ./run-if_aad.sh ann_thyroid_1v3 60 10 0.03 &
+nohup bash ./run-if_aad.sh covtype_sub 60 10 0.03 &
+nohup bash ./run-if_aad.sh cardiotocography_1 60 10 0.03 &
+nohup bash ./run-if_aad.sh mammography_sub 60 10 0.03 &
+nohup bash ./run-if_aad.sh yeast 60 10 0.03 &
+
+# large datasets
+nohup bash ./run-if_aad.sh covtype 100 10 0.03 &
+nohup bash ./run-if_aad.sh kddcup 100 10 0.03 &
+nohup bash ./run-if_aad.sh mammography 100 10 0.03 &
+nohup bash ./run-if_aad.sh shuttle_1v23567 100 10 0.03 &

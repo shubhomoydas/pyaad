@@ -10,6 +10,7 @@ cvxopt
 pandas
 ranking
 statsmodels
+matplotlib
 
 Reference:
 ----------

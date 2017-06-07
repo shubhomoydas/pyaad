@@ -11,20 +11,39 @@ AAD_UPD_TYPE = 3
 AAD_SLACK_CONSTR_UPD_TYPE = 4
 BASELINE_UPD_TYPE = 5
 AAD_ITERATIVE_GRAD_UPD_TYPE = 6
+AAD_IFOREST = 7
+SIMPLE_PAIRWISE = 8
+IFOREST_ORIG = 9
+ATGP_IFOREST = 10
+
+
+# ==============================
+# Isolation Forest Score Types
+# ------------------------------
+IFOR_SCORE_TYPE_INV_PATH_LEN = 0
+IFOR_SCORE_TYPE_INV_PATH_LEN_EXP = 1
+IFOR_SCORE_TYPE_NORM = 2
+IFOR_SCORE_TYPE_CONST = 3
+IFOR_SCORE_TYPE_NEG_PATH_LEN = 4
+
 
 # Inference type names - first is blank string so these are 1-indexed
-update_types = ["", "simple_online", "online_optim", "aad", "aad_slack", "baseline", "iter_grad"]
+update_types = ["", "simple_online", "online_optim", "aad",
+                "aad_slack", "baseline", "iter_grad", "iforest",
+                "simple_pairwise", "iforest_orig", "if_atgp"]
 # ------------------------------
 
 # ==============================
 # Constraint types when Inference Type is AAD_PAIRWISE_CONSTR_UPD_TYPE
 # ------------------------------
+AAD_CONSTRAINT_NONE = 0  # no constraints
 AAD_CONSTRAINT_PAIRWISE = 1  # slack vars [0, Inf]; weights [-Inf, Inf]
 AAD_CONSTRAINT_PAIRWISE_WEIGHTS_POSITIVE_SUM_1 = 2  # slack vars [0, Inf]; weights [0, Inf]
 AAD_CONSTRAINT_WEIGHTS_POSITIVE_SUM_1 = 3  # no pairwise; weights [0, Inf], sum(weights)=1
+AAD_CONSTRAINT_TAU_INSTANCE = 4  # tau-th quantile instance will be used in pairwise constraints
 
 # Constraint type names - first is blank string so these are 1-indexed
-constraint_types = ["", "pairwise", "pairwise_pos_wts_sum1", "pos_wts_sum1"]
+constraint_types = ["no_constraints", "pairwise", "pairwise_pos_wts_sum1", "pos_wts_sum1", "tau_instance"]
 
 # ==============================
 # Baseline to use for simple weight inference
@@ -117,12 +136,18 @@ def get_option_list():
                         help="Penalty for anomaly")
     parser.add_argument("--Cn", action="store", type=float, default=1.,
                         help="Penalty on nominals")
-    parser.add_argument("--Cx", action="store", type=int, default=1000.,
+    parser.add_argument("--Cx", action="store", type=float, default=1000.,
                         help="Penalty on constraints")
     parser.add_argument("--inferencetype", action="store", type=int, default=AAD_UPD_TYPE,
                         help="Inference algorithm (simple_online(1) / online_optim(2) / aad_pairwise(3))")
     parser.add_argument("--constrainttype", action="store", type=int, default=AAD_CONSTRAINT_PAIRWISE,
                         help="Inference algorithm (simple_online(1) / online_optim(2) / aad_pairwise(3))")
+    parser.add_argument("--orderbyviolated", action="store_true", default=False,
+                        help="Order by degree of violation when selecting subset of instances for constraints.")
+    parser.add_argument("--ignoreAATPloss", action="store_true", default=False,
+                        help="Ignore the AATP hinge loss in optimization function.")
+    parser.add_argument("--random_instance_at_start", action="store_true", default=False,
+                        help="[EXPERIMENTAL] Use random instance as tau-th instance in the first feedback.")
     parser.add_argument("--pseudoanomrank_always", action="store_true", default=False,
                         help="Whether to always use pseudo anomaly instance")
     parser.add_argument("--max_anomalies_in_constraint_set", type=int, default=1000, required=False,
@@ -159,6 +184,15 @@ def get_option_list():
     parser.add_argument("--scoresfile", type=str, default="", required=False,
                         help="Precomputed scores from ensemble of detectors in CSV format. One detector per column;"
                              "first column has label [anomaly|nominal]")
+
+    parser.add_argument("--ifor_n_trees", action="store", type=int, default=100,
+                        help="Number of trees for Isolation Forest")
+    parser.add_argument("--ifor_n_samples", action="store", type=int, default=256,
+                        help="Number of samples to build each tree in Isolation Forest")
+    parser.add_argument("--ifor_score_type", action="store", type=int, default=IFOR_SCORE_TYPE_CONST,
+                        help="Type of anomaly score computation for a node in Isolation Forest")
+    parser.add_argument("--ifor_add_leaf_nodes_only", action="store_true", default=False,
+                        help="Whether to include only leaf node regions only or intermediate node regions as well.")
     return parser
 
 
@@ -211,11 +245,14 @@ class Opts(object):
         self.tau = args.tau
         self.update_type = args.inferencetype
         self.constrainttype = args.constrainttype
+        self.ignoreAATPloss = args.ignoreAATPloss
+        self.orderbyviolated = args.orderbyviolated
         self.withprior = args.withprior  # whether to include prior in loss
         self.unifprior = args.unifprior
         self.priorsigma2 = args.sigma2  # 0.2, #0.5, #0.1,
         self.single_inst_feedback = False
         self.batch = args.batch
+        self.random_instance_at_start = args.random_instance_at_start
         self.pseudoanomrank_always = args.pseudoanomrank_always
         self.max_anomalies_in_constraint_set = args.max_anomalies_in_constraint_set
         self.max_nominals_in_constraint_set = args.max_nominals_in_constraint_set
@@ -252,6 +289,11 @@ class Opts(object):
         self.scoresdir = args.scoresdir
         self.scoresfile = args.scoresfile
 
+        self.ifor_n_trees = args.ifor_n_trees
+        self.ifor_n_samples = args.ifor_n_samples
+        self.ifor_score_type = args.ifor_score_type
+        self.ifor_add_leaf_nodes_only = args.ifor_add_leaf_nodes_only
+
     def is_simple_run(self):
         return self.runtype == "simple"
 
@@ -281,6 +323,11 @@ class Opts(object):
         s = update_types[self.update_type]
         if self.update_type == AAD_UPD_TYPE:
             return "%s_%s" % (s, constraint_types[self.constrainttype])
+        elif self.update_type == AAD_IFOREST or self.update_type == ATGP_IFOREST:
+            return "%s_%s-trees%d_samples%d_nscore%d%s" % \
+                   (s, constraint_types[self.constrainttype],
+                    self.ifor_n_trees, self.ifor_n_samples, self.ifor_score_type,
+                    "_leaf" if self.ifor_add_leaf_nodes_only else "")
         else:
             return s
 
@@ -301,9 +348,13 @@ class Opts(object):
         else:
             filesig = ""
         optimsig = "-optim_%s" % (self.optimlib,)
+        orderbyviolatedsig = "-by_violated" if self.orderbyviolated else ""
+        ignoreAATPlosssig = "-noAATP" if self.ignoreAATPloss else ""
+        randomInstanceAtStartSig = "-randFirst" if self.random_instance_at_start else ""
         nameprefix = (self.dataset +
                       ("-" + self.update_type_str()) +
                       ("_" + RELATIVE_TO_NAMES[self.relativeto] if self.update_type == SIMPLE_UPD_TYPE else "") +
+                      randomInstanceAtStartSig +
                       ("-single" if self.single_inst_feedback else "") +
                       ("-" + self.query_name_str()) +
                       ("-orig" if self.original_dims else "") +
@@ -322,7 +373,9 @@ class Opts(object):
                                          and self.tau_nominal != 0.5 else "") +
                       ("-topK%d" % (self.topK,)) +
                       ("-pseudoanom_always_%s" % (self.pseudoanomrank_always,)) +
-                      optimsig
+                      optimsig +
+                      orderbyviolatedsig +
+                      ignoreAATPlosssig
                       )
         return nameprefix.replace(".", "_")
 
@@ -331,9 +384,13 @@ class Opts(object):
         return os.path.join(self.cachedir, 'loda_projs')
 
     def str_opts(self):
+        orderbyviolatedsig = "-by_violated" if self.orderbyviolated else ""
+        ignoreAATPlosssig = "-noAATP" if self.ignoreAATPloss else ""
+        randomInstanceAtStartSig = "-randFirst" if self.random_instance_at_start else ""
         srr = (("[" + self.dataset + "]") +
                ("-%s" % (self.update_type_str(),)) +
                (("_%s" % (RELATIVE_TO_NAMES[self.relativeto],)) if self.update_type == SIMPLE_UPD_TYPE else "") +
+               randomInstanceAtStartSig +
                ("-single" if self.single_inst_feedback else "") +
                ("-query_" + self.query_name_str()) +
                ("-orig" if self.original_dims else "") +
@@ -354,7 +411,9 @@ class Opts(object):
                ("-pseudoanom_always_" + str(self.pseudoanomrank_always)) +
                ("-orgdim" if self.original_dims else "") +
                ("sngl_fbk" if self.single_inst_feedback else "") +
-               ("-optimlib_%s" % (self.optimlib,))
+               ("-optimlib_%s" % (self.optimlib,)) +
+               orderbyviolatedsig +
+               ignoreAATPlosssig
                )
         return srr
 

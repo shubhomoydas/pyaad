@@ -75,23 +75,23 @@ def test_args_alad_loda(dataset, op="nop"):
         # , "--optimlib=cvxopt"
         #
         # , "--withmeanrelativeloss"
-        , "--log_file=/Users/moy/work/temp/pyalad.log"
-        , "--filedir=/Users/moy/work/datasets/anomaly/%s/fullsamples" % (dataset,)
-        , "--cachedir=/Users/moy/work/datasets/anomaly/%s/fullmodel/pyalad" % (dataset,)
-        , "--resultsdir=/Users/moy/work/datasets/anomaly/%s/fullresults/pyalad" % (dataset,)
-        , "--plotsdir=/Users/moy/work/datasets/anomaly/%s/fullplots" % (dataset,)
-        # , "--filedir=/scratch/datasets/anomaly/%s/fullsamples" % (dataset,)
-        # , "--cachedir=/scratch/datasets/anomaly/%s/fullmodel" % (dataset,)
-        # , "--resultsdir=/scratch/datasets/anomaly/%s/fullresults" % (dataset,)
-        # , "--plotsdir=/scratch/datasets/anomaly/%s/fullplots" % (dataset,)
+        , "--log_file=temp/pyalad.log"
+        , "--filedir=datasets/anomaly/%s/fullsamples" % (dataset,)
+        , "--cachedir=datasets/anomaly/%s/fullmodel/pyalad" % (dataset,)
+        , "--resultsdir=datasets/anomaly/%s/fullresults/pyalad" % (dataset,)
+        , "--plotsdir=datasets/anomaly/%s/fullplots" % (dataset,)
+        # , "--filedir=datasets/anomaly/%s/fullsamples" % (dataset,)
+        # , "--cachedir=datasets/anomaly/%s/fullmodel" % (dataset,)
+        # , "--resultsdir=datasets/anomaly/%s/fullresults" % (dataset,)
+        # , "--plotsdir=datasets/anomaly/%s/fullplots" % (dataset,)
         #
         , "--ensembletype=loda"
         # , "--ensembletype=regular"
         #
         , "--runtype=multi"
         # , "--runtype=simple"
-        , "--datafile=/Users/moy/work/datasets/anomaly/%s/fullsamples/%s_1.csv" % (dataset, dataset)
-        , "--scoresfile=/Users/moy/work/datasets/anomaly/%s/featurebag_lof/%s_1.csv" % (dataset, dataset)
+        , "--datafile=datasets/anomaly/%s/fullsamples/%s_1.csv" % (dataset, dataset)
+        , "--scoresfile=datasets/anomaly/%s/featurebag_lof/%s_1.csv" % (dataset, dataset)
     ]
     return test_args
 

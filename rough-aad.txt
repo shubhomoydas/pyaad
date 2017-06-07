@@ -1,0 +1,45 @@
+
+# ===========
+# Run pyalad on laptop
+# ===========
+
+bash ./run-pyalad.sh toy 3 1 1 0.03 1 none &
+
+# easy datasets
+nohup bash ./run-pyalad.sh kddcup_sub 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh shuttle_sub 3 1 1 0.03 1 none &
+
+# harder
+nohup bash ./run-pyalad.sh abalone 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh ann_thyroid_1v3 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh covtype_sub 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh cardiotocography_1 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh mammography_sub 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh yeast 3 1 1 0.03 1 none &
+
+# large datasets
+nohup bash ./run-pyalad.sh covtype 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh kddcup 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh mammography 3 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh shuttle_1v23567 3 1 1 0.03 1 none &
+
+
+# ===========
+# Run atgp on laptop
+# ===========
+
+# smaller datasets
+nohup bash ./run-pyalad.sh abalone 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh ann_thyroid_1v3 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh covtype_sub 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh kddcup_sub 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh mammography_sub 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh shuttle_sub 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh yeast 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh cardiotocography_1 6 1 1 0.03 1 none &
+
+# large datasets
+nohup bash ./run-pyalad.sh covtype 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh kddcup 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh mammography 6 1 1 0.03 1 none &
+nohup bash ./run-pyalad.sh shuttle_1v23567 6 1 1 0.03 1 none &

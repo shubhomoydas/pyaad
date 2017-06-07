@@ -104,13 +104,15 @@ class Ensemble(object):
     """Stores all ensemble scores"""
 
     def __init__(self, samples, labels, scores, weights,
-                 agg_scores=None, ordered_anom_idxs=None, auc=0.0, model=None):
+                 agg_scores=None, ordered_anom_idxs=None, original_indexes=None,
+                 auc=0.0, model=None):
         self.samples = samples
         self.labels = labels
         self.scores = scores
         self.weights = weights
         self.agg_scores = agg_scores
         self.ordered_anom_idxs = ordered_anom_idxs
+        self.original_indexes = original_indexes
         self.auc = auc
         self.model = model
         if agg_scores is not None and ordered_anom_idxs is None:
@@ -150,7 +152,7 @@ class LodaEnsemble(EnsembleManager):
         auc = fn_auc(cbind(lbls, -model.anom_score))
         return Ensemble(anoms, lbls, detector_scores, detector_wts,
                         agg_scores=model.anom_score, ordered_anom_idxs=model.order_anom_idxs,
-                        auc=auc, model=model)
+                        original_indexes=model.topanomidxs, auc=auc, model=model)
 
     def load_data(self, samples, labels, opts):
         algo_result = self.modelmanager.get_model(samples, opts)

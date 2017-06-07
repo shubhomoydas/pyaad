@@ -81,12 +81,18 @@ def consolidate_alad_metrics(fids, runidxs, opts):
 
 
 class SequentialResults(object):
-    def __init__(self, num_seen, num_seen_baseline):
+    def __init__(self, num_seen, num_seen_baseline,
+                 true_queried_indexes=None, true_queried_indexes_baseline=None):
         self.num_seen = num_seen
         self.num_seen_baseline = num_seen_baseline
+        self.true_queried_indexes = true_queried_indexes
+        self.true_queried_indexes_baseline = true_queried_indexes_baseline
 
 
 def summarize_ensemble_num_seen(ensemble, metrics, fid=0, runidx=0):
+    """
+    IMPORTANT: returned queried_indexes and queried_indexes_baseline are 1-indexed (NOT 0-indexed)
+    """
     nqueried = len(metrics.queried)
     num_seen = np.zeros(shape=(1, nqueried + 2))
     num_seen_baseline = np.zeros(shape=(1, nqueried + 2))
@@ -98,13 +104,30 @@ def summarize_ensemble_num_seen(ensemble, metrics, fid=0, runidx=0):
     num_seen_baseline[0, 0:2] = [fid, runidx]
     num_seen_baseline[0, 2:(num_seen_baseline.shape[1])] = np.cumsum(qlbls)
 
-    return num_seen, num_seen_baseline
+    # the ensembles store samples in sorted order of default anomaly
+    # scores. The corresponding indexes are stored in ensemble.original_indexes
+    true_queried_indexes = np.zeros(shape=(1, nqueried + 2))
+    true_queried_indexes[0, 0:2] = [fid, runidx]
+    # Note: make the queried indexes relative 1 (NOT zero)
+    true_queried_indexes[0, 2:(true_queried_indexes.shape[1])] = ensemble.original_indexes[metrics.queried] + 1
+
+    # the ensembles store samples in sorted order of default anomaly
+    # scores. The corresponding indexes are stored in ensemble.original_indexes
+    true_queried_indexes_baseline = np.zeros(shape=(1, nqueried + 2))
+    true_queried_indexes_baseline[0, 0:2] = [fid, runidx]
+    # Note: make the queried indexes relative 1 (NOT zero)
+    true_queried_indexes_baseline[0, 2:(true_queried_indexes_baseline.shape[1])] = \
+        ensemble.original_indexes[np.arange(nqueried)] + 1
+
+    return num_seen, num_seen_baseline, true_queried_indexes, true_queried_indexes_baseline
 
 
 def summarize_alad_metrics(ensembles, metrics_struct):
     nqueried = len(metrics_struct.metrics[0][0].queried)
     num_seen = np.zeros(shape=(0, nqueried+2))
     num_seen_baseline = np.zeros(shape=(0, nqueried+2))
+    true_queried_indexes = np.zeros(shape=(0, nqueried+2))
+    true_queried_indexes_baseline = np.zeros(shape=(0, nqueried + 2))
     for i in range(len(metrics_struct.metrics)):
         # file level
         submetrics = metrics_struct.metrics[i]
@@ -124,7 +147,26 @@ def summarize_alad_metrics(ensembles, metrics_struct):
             nseen[0, 0:2] = [metrics_struct.fids[i], metrics_struct.runidxs[j]]
             nseen[0, 2:(nseen.shape[1])] = np.cumsum(qlbls)
             num_seen_baseline = rbind(num_seen_baseline, nseen)
-    return SequentialResults(num_seen=num_seen, num_seen_baseline=num_seen_baseline)
+
+            # the ensembles store samples in sorted order of default anomaly
+            # scores. The corresponding indexes are stored in ensemble.original_indexes
+            t_idx = np.zeros(shape=(1, nqueried + 2))
+            t_idx[0, 0:2] = [metrics_struct.fids[i], metrics_struct.runidxs[j]]
+            t_idx[0, 2:(t_idx.shape[1])] = subensemble[j].original_indexes[queried]
+            # Note: make the queried indexes realive 1 (NOT zero)
+            true_queried_indexes = rbind(true_queried_indexes, t_idx + 1)
+
+            # the ensembles store samples in sorted order of default anomaly
+            # scores. The corresponding indexes are stored in ensemble.original_indexes
+            b_idx = np.zeros(shape=(1, nqueried + 2))
+            b_idx[0, 0:2] = [metrics_struct.fids[i], metrics_struct.runidxs[j]]
+            b_idx[0, 2:(b_idx.shape[1])] = subensemble[j].original_indexes[np.arange(nqueried)]
+            # Note: make the queried indexes realive 1 (NOT zero)
+            true_queried_indexes_baseline = rbind(true_queried_indexes_baseline, b_idx + 1)
+
+    return SequentialResults(num_seen=num_seen, num_seen_baseline=num_seen_baseline,
+                             true_queried_indexes=true_queried_indexes,
+                             true_queried_indexes_baseline=true_queried_indexes_baseline)
 
 
 def save_alad_summary(alad_summary, opts):
@@ -140,7 +182,7 @@ def load_alad_summary(opts):
     if canload:
         alad_summary = load(fpath)
     else:
-        print "Cannot load " + fpath
+        print ("Cannot load %s" % fpath)
     return alad_summary
 
 
@@ -189,6 +231,8 @@ def alad_ensemble(ensemble, opts):
     hn = []
     xis = []
     qval = np.Inf
+    qval_ranges = []
+    qvals = []  # just to check the trend whether this increases or decreases across iterations
 
     qstate = Query.get_initial_query_state(opts.qtype, opts=opts, qrank=topK)
 
@@ -250,9 +294,18 @@ def alad_ensemble(ensemble, opts):
         else:
             w_prior = detector_wts
 
+        if True:
+            # for debug, log range of scores
+            qval_ranges.append(get_score_ranges(ensemble.scores, detector_wts))
+
+        topK = bt.topK
         if (opts.update_type == AAD_UPD_TYPE or
                     opts.update_type == AAD_SLACK_CONSTR_UPD_TYPE):
+            if i == 0 and opts.random_instance_at_start:
+                topK = np.random.random_integers(1, ensemble.scores.shape[0], 1)[0]
+                # logger.debug("random inst-index: %d" % topK)
             qval = get_aatp_quantile(x=ensemble.scores, w=detector_wts, topK=topK)
+            qvals.append(qval)
 
         if opts.update_type == SIMPLE_UPD_TYPE:
             # The simple online weight update
@@ -280,6 +333,9 @@ def alad_ensemble(ensemble, opts):
                 sigma2=opts.priorsigma2,
                 pseudoanomrank=topK,
                 pseudoanomrank_always=opts.pseudoanomrank_always,
+                order_by_violated=opts.orderbyviolated,
+                ignore_aatp_loss=opts.ignoreAATPloss,
+                random_instance_at_start=opts.random_instance_at_start,
                 constraint_type=opts.constrainttype,
                 max_anomalies_in_constraint_set=opts.max_anomalies_in_constraint_set,
                 max_nominals_in_constraint_set=opts.max_nominals_in_constraint_set,
@@ -292,13 +348,21 @@ def alad_ensemble(ensemble, opts):
                 # retain the previous weights
         elif opts.update_type == AAD_ITERATIVE_GRAD_UPD_TYPE:
             # enforces \sum{w_i}=1 constraint
-            # source('/Users/moy/work/git/loda/R/alad_aatp_iterative_grad.R')
             w_soln = weight_update_iter_grad(ensemble.scores, ensemble.labels,
                                              hf=append(ha, hn),
-                                             Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx, topK=topK)
+                                             Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx, topK=topK, max_iters=1000)
             #logger.debug("Iter: %d; old loss: %f; loss: %f; del_loss: %f" %
             #             (w_soln.tries, w_soln.loss_old, w_soln.loss, abs(w_soln.loss - w_soln.loss_old)))
             detector_wts = w_soln.w
+        elif opts.update_type == SIMPLE_PAIRWISE:
+            w_soln = weight_update_simple_pairwise(ensemble.scores, ensemble.labels,
+                                                   hf=append(ha, hn),
+                                                   w=detector_wts, w_prior=w_prior,
+                                                   Ca=opts.Ca, Cn=opts.Cn,
+                                                   sigma2=opts.priorsigma2,
+                                                   topK=topK)
+            detector_wts = w_soln.w
+            # logger.debug(detector_wts)
         else:
             # older types of updates, not used anymore...
             raise ValueError("Invalid weight update specified!")
@@ -308,6 +372,10 @@ def alad_ensemble(ensemble, opts):
             tdiff = difftime(endtime_iter, starttime_iter, units="secs")
             logger.debug("Completed [%s] fid %d rerun %d feedback %d in %f sec(s)" %
                          (opts.dataset, opts.fid, opts.runidx, i, tdiff))
+    # logger.debug("[%s] fid %d rerun %d\nqvals: %s" % (opts.dataset, opts.fid, opts.runidx,
+    #                                                   ",".join([str(v) for v in qvals])))
+    # logger.debug("[%s] fid %d rerun %d\nscore_ranges: %s" % (opts.dataset, opts.fid, opts.runidx,
+    #                                                          ",".join([",".join([("%0.3f" % v) for v in arr]) for arr in qval_ranges])))
 
     return metrics
 
@@ -325,11 +393,13 @@ def run_alad_simple(samples, labels, opts, rnd_seed=0):
     metrics = alad_ensemble(ensemble, opts)
     num_seen = None
     num_seen_baseline = None
+    queried_indexes = None
+    queried_indexes_baseline = None
 
     if metrics is not None:
         save_alad_metrics(metrics, opts)
-        num_seen, num_seen_baseline = summarize_ensemble_num_seen(
-            ensemble, metrics, fid=opts.fid)
+        num_seen, num_seen_baseline, queried_indexes, queried_indexes_baseline = \
+            summarize_ensemble_num_seen(ensemble, metrics, fid=opts.fid)
         logger.debug("baseline: \n%s" % str([v for v in num_seen_baseline[0, :]]))
         logger.debug("num_seen: \n%s" % str([v for v in num_seen[0, :]]))
 
@@ -339,7 +409,7 @@ def run_alad_simple(samples, labels, opts, rnd_seed=0):
     logger.debug("Processed [%s] file %d, auc: %f, time: %f sec(s); completed at %s" %
                  (opts.dataset, opts.fid, ensemble.auc, tdiff, endtime_feedback))
 
-    return num_seen, num_seen_baseline
+    return num_seen, num_seen_baseline, queried_indexes, queried_indexes_baseline
 
 
 def run_alad_multi(samples, labels, opts, rnd_seed=0):
@@ -347,6 +417,8 @@ def run_alad_multi(samples, labels, opts, rnd_seed=0):
     ensemblemanager = EnsembleManager.get_ensemble_manager(opts)
     all_num_seen = None
     all_num_seen_baseline = None
+    all_queried_indexes = None
+    all_queried_indexes_baseline = None
 
     runidxs = opts.get_runidxs()
     for runidx in runidxs:
@@ -379,10 +451,12 @@ def run_alad_multi(samples, labels, opts, rnd_seed=0):
         if metrics is not None:
             save_alad_metrics(metrics, opts)
 
-            num_seen, num_seen_baseline = summarize_ensemble_num_seen(
-                ensemble, metrics, fid=opts.fid, runidx=runidx)
+            num_seen, num_seen_baseline, queried_indexes, queried_indexes_baseline = \
+                summarize_ensemble_num_seen(ensemble, metrics, fid=opts.fid, runidx=runidx)
             all_num_seen = rbind(all_num_seen, num_seen)
             all_num_seen_baseline = rbind(all_num_seen_baseline, num_seen_baseline)
+            all_queried_indexes = rbind(all_queried_indexes, queried_indexes)
+            all_queried_indexes_baseline = rbind(all_queried_indexes_baseline, queried_indexes_baseline)
             logger.debug("baseline: \n%s" % str([v for v in num_seen_baseline[0, :]]))
             logger.debug("num_seen: \n%s" % str([v for v in num_seen[0, :]]))
 
@@ -391,7 +465,7 @@ def run_alad_multi(samples, labels, opts, rnd_seed=0):
         logger.debug("Processed [%s] file %d, auc: %f, time: %f sec(s); completed at %s" %
                      (opts.dataset, opts.fid, ensemble.auc, tdiff, endtime_feedback))
 
-    return all_num_seen, all_num_seen_baseline
+    return all_num_seen, all_num_seen_baseline, all_queried_indexes, all_queried_indexes_baseline
 
 
 def alad(opts):
@@ -407,6 +481,8 @@ def alad(opts):
 
     all_num_seen = None
     all_num_seen_baseline = None
+    all_queried_indexes = None
+    all_queried_indexes_baseline = None
     for i in range(len(allsamples)):
         # args.sparsity = 0.0 # include all features
         opts.sparsity = None  # loda default d*(1-1/sqrt(d)) vectors will be zero
@@ -432,9 +508,13 @@ def alad(opts):
 
         all_num_seen = rbind(all_num_seen, num_seen_summary[0])
         all_num_seen_baseline = rbind(all_num_seen_baseline, num_seen_summary[1])
+        all_queried_indexes = rbind(all_queried_indexes, num_seen_summary[2])
+        all_queried_indexes_baseline = rbind(all_queried_indexes_baseline, num_seen_summary[3])
 
         logger.debug("completed %s fid %d" % (opts.dataset, fid,))
 
-    return SequentialResults(num_seen=all_num_seen, num_seen_baseline=all_num_seen_baseline)
+    return SequentialResults(num_seen=all_num_seen, num_seen_baseline=all_num_seen_baseline,
+                             true_queried_indexes=all_queried_indexes,
+                             true_queried_indexes_baseline=all_queried_indexes_baseline)
 
 
