@@ -18,7 +18,9 @@ This codebase has two different algorithms:
   - The Isolation Forest based AAD -- this is the most recent work. Expect documentation on this by end of July.
 
 To run the Isolation Forest based code, see rough-if_aad.txt. A sample command is:
-  bash ./run-if_aad.sh toy2 35 1 0.03
+
+    bash ./run-if_aad.sh toy2 35 1 0.03
+
 
 Reference:
 ----------
