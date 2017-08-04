@@ -193,6 +193,12 @@ def get_option_list():
                         help="Type of anomaly score computation for a node in Isolation Forest")
     parser.add_argument("--ifor_add_leaf_nodes_only", action="store_true", default=False,
                         help="Whether to include only leaf node regions only or intermediate node regions as well.")
+    parser.add_argument("--modelfile", action="store", default="",
+                        help="Model file path in case the model needs to be saved or loaded. Supported only for Isolation Forest.")
+    parser.add_argument("--save_model", action="store_true", default=False,
+                        help="Whether to save the trained model")
+    parser.add_argument("--load_model", action="store_true", default=False,
+                        help="Whether to load a pre-trained model")
     return parser
 
 
@@ -293,6 +299,10 @@ class Opts(object):
         self.ifor_n_samples = args.ifor_n_samples
         self.ifor_score_type = args.ifor_score_type
         self.ifor_add_leaf_nodes_only = args.ifor_add_leaf_nodes_only
+
+        self.modelfile = args.modelfile
+        self.load_model = args.load_model
+        self.save_model = args.save_model
 
     def is_simple_run(self):
         return self.runtype == "simple"

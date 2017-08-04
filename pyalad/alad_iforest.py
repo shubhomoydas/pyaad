@@ -95,6 +95,9 @@ class AadIsolationForest(object):
         # fraction of instances in each region
         self.frac_insts = None
 
+        # node weights learned through weak-supervision
+        self.w = None
+
     def fit(self, x):
         self.clf.fit(x)
         # print len(clf.estimators_)
@@ -472,6 +475,22 @@ class AadIsolationForest(object):
         w_new = w_new / np.sqrt(w_new.dot(w_new))
         return w_new
 
+    def get_uniform_weights(self, m=None):
+        if m is None:
+            m = len(self.d)
+        w_unif = np.ones(m, dtype=float)
+        w_unif = w_unif / np.sqrt(w_unif.dot(w_unif))
+        # logger.debug("w_prior:")
+        # logger.debug(w_unif)
+        return w_unif
+
+    def order_by_score(self, x, w=None):
+        if w is None:
+            anom_score = self.get_score(x, self.w)
+        else:
+            anom_score = self.get_score(x, w)
+        return order(anom_score, decreasing=True)
+
     def aad_ensemble(self, ensemble, opts):
 
         if opts.budget == 0:
@@ -488,43 +507,28 @@ class AadIsolationForest(object):
         hn = []
         xis = []
 
-        w_unifprior = np.ones(m, dtype=float)
-        w_unifprior = w_unifprior / np.sqrt(w_unifprior.dot(w_unifprior))
-        # logger.debug("w_prior:")
-        # logger.debug(w_unifprior)
-
         qstate = Query.get_initial_query_state(opts.qtype, opts=opts, qrank=bt.topK)
 
         metrics.all_weights = np.zeros(shape=(opts.budget, m))
-        w = w_unifprior
+
+        w_unif_prior = self.get_uniform_weights(m)
+        if self.w is None:
+            self.w = w_unif_prior
 
         for i in range(bt.budget):
 
             starttime_iter = timer()
 
             # save the weights in each iteration for later analysis
-            metrics.all_weights[i, :] = w
+            metrics.all_weights[i, :] = self.w
             metrics.queried = xis  # xis keeps growing with each feedback iteration
 
-            anom_score = x.dot(w)
-            order_anom_idxs = order(anom_score, decreasing=True)
-
-            if True:
-                # gather AUC metrics
-                metrics.train_aucs[0, i] = fn_auc(cbind(y, -anom_score))
-
-                # gather Precision metrics
-                prec = fn_precision(cbind(y, -anom_score), opts.precision_k)
-                metrics.train_aprs[0, i] = prec[len(opts.precision_k) + 1]
-                train_n_at_top = get_anomalies_at_top(-anom_score, y, opts.precision_k)
-                for k in range(len(opts.precision_k)):
-                    metrics.train_precs[k][0, i] = prec[k]
-                    metrics.train_n_at_top[k][0, i] = train_n_at_top[k]
+            order_anom_idxs = self.order_by_score(x)
 
             xi = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
                                        queried_items=xis,
                                        x=x, lbls=y,
-                                       w=w, hf=append(ha, hn),
+                                       w=self.w, hf=append(ha, hn),
                                        remaining_budget=opts.budget - i)
             # logger.debug("xi: %d" % (xi,))
             xis.append(xi)
@@ -544,26 +548,26 @@ class AadIsolationForest(object):
 
             if opts.batch:
                 # Use the original (uniform) weights as prior
-                w = w_unifprior
+                self.w = w_unif_prior
                 hf = np.arange(i)
                 ha = hf[np.where(y[hf] == 1)[0]]
                 hn = hf[np.where(y[hf] == 0)[0]]
 
             if opts.unifprior:
-                w_prior = w_unifprior
+                w_prior = w_unif_prior
             else:
-                w_prior = w
+                w_prior = self.w
 
             tau_rel = opts.constrainttype == AAD_CONSTRAINT_TAU_INSTANCE
             if opts.update_type == AAD_IFOREST:
-                w = self.if_aad_weight_update(w, x, y, hf=append(ha, hn),
+                self.w = self.if_aad_weight_update(self.w, x, y, hf=append(ha, hn),
                                               w_prior=w_prior, opts=opts, tau_rel=tau_rel)
             elif opts.update_type == ATGP_IFOREST:
                 w_soln = weight_update_iter_grad(ensemble.scores, ensemble.labels,
                                                  hf=append(ha, hn),
                                                  Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
                                                  topK=bt.topK, max_iters=1000)
-                w = w_soln.w
+                self.w = w_soln.w
             else:
                 raise ValueError("Invalid weight update for IForest: %d" % opts.update_type)
             # logger.debug("w_new:")
