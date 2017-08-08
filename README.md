@@ -24,9 +24,9 @@ To run the Isolation Forest based code, see rough-if_aad.txt. A sample command i
 
 Reference(s):
 -------------
-    Das, S., Wong, W-K., Dietterich, T., Fern, A. and Emmott, A. (2016). Incorporating Expert Feedback into Active Anomaly Discovery in the Proceedings of the IEEE International Conference on Data Mining. (http://web.engr.oregonstate.edu/~wongwe/papers/pdf/ICDM2016.AAD.pdf)
+  - Das, S., Wong, W-K., Dietterich, T., Fern, A. and Emmott, A. (2016). Incorporating Expert Feedback into Active Anomaly Discovery in the Proceedings of the IEEE International Conference on Data Mining. (http://web.engr.oregonstate.edu/~wongwe/papers/pdf/ICDM2016.AAD.pdf)
 
-    Das, S., Wong, W-K., Fern, A., Dietterich, T. and Siddiqui, A. (2017). http://poloclub.gatech.edu/idea2017/papers/p25-das.pdf, KDD Interactive Data Exploration and Analytics (IDEA) Workshop. (http://poloclub.gatech.edu/idea2017/papers/p25-das.pdf)
+  - Das, S., Wong, W-K., Fern, A., Dietterich, T. and Siddiqui, A. (2017). http://poloclub.gatech.edu/idea2017/papers/p25-das.pdf, KDD Interactive Data Exploration and Analytics (IDEA) Workshop. (http://poloclub.gatech.edu/idea2017/papers/p25-das.pdf)
 
 
 Running the AAD Code:
