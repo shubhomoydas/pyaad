@@ -13,13 +13,16 @@ statsmodels
 matplotlib
 
 
-This codebase has two different algorithms:
+This codebase has three different algorithms:
   - The LODA based AAD
   - The Isolation Forest based AAD
+  - HS Trees based AAD
 
 To run the Isolation Forest based code, see rough-if_aad.txt. A sample command is:
 
     bash ./run-if_aad.sh toy2 35 1 0.03
+    
+Note: Will update the run command for HS-Trees soon.
 
 
 Reference(s):
