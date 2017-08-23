@@ -25,7 +25,11 @@ IFOR_SCORE_TYPE_INV_PATH_LEN_EXP = 1
 IFOR_SCORE_TYPE_NORM = 2
 IFOR_SCORE_TYPE_CONST = 3
 IFOR_SCORE_TYPE_NEG_PATH_LEN = 4
+HST_SCORE_TYPE = 5
 
+ENSEMBLE_SCORE_LINEAR = 0  # linear combination of scores
+ENSEMBLE_SCORE_EXPONENTIAL = 1  # exp(linear combination)
+ensemble_score_names = ["linear", "exp"]
 
 # Inference type names - first is blank string so these are 1-indexed
 update_types = ["", "simple_online", "online_optim", "aad",
@@ -199,6 +203,25 @@ def get_option_list():
                         help="Whether to save the trained model")
     parser.add_argument("--load_model", action="store_true", default=False,
                         help="Whether to load a pre-trained model")
+
+    parser.add_argument("--n_jobs", action="store", type=int, default=1,
+                        help="Number of parallel threads (if supported)")
+
+    parser.add_argument("--forest_type", action="store", type=str, default="ifor",
+                        help="Type of forest to construct")
+    parser.add_argument("--forest_n_trees", action="store", type=int, default=100,
+                        help="Number of trees for Forest")
+    parser.add_argument("--forest_n_samples", action="store", type=int, default=256,
+                        help="Number of samples to build each tree in Forest")
+    parser.add_argument("--forest_score_type", action="store", type=int, default=IFOR_SCORE_TYPE_CONST,
+                        help="Type of anomaly score computation for a node in Forest")
+    parser.add_argument("--ensemble_score", action="store", type=int, default=ENSEMBLE_SCORE_LINEAR,
+                        help="How to combine scores from ensemble members")
+    parser.add_argument("--forest_add_leaf_nodes_only", action="store_true", default=False,
+                        help="Whether to include only leaf node regions only or intermediate node regions as well.")
+    parser.add_argument("--forest_max_depth", action="store", type=int, default=15,
+                        help="Number of samples to build each tree in Forest")
+
     return parser
 
 
@@ -299,6 +322,17 @@ class Opts(object):
         self.ifor_n_samples = args.ifor_n_samples
         self.ifor_score_type = args.ifor_score_type
         self.ifor_add_leaf_nodes_only = args.ifor_add_leaf_nodes_only
+
+        self.n_jobs = args.n_jobs
+
+        self.forest_type = args.forest_type
+        self.forest_n_trees = args.forest_n_trees
+        self.forest_n_samples = args.forest_n_samples
+        self.forest_score_type = args.forest_score_type
+        self.forest_add_leaf_nodes_only = args.forest_add_leaf_nodes_only
+        self.forest_max_depth = args.forest_max_depth
+
+        self.ensemble_score = args.ensemble_score
 
         self.modelfile = args.modelfile
         self.load_model = args.load_model

@@ -282,6 +282,25 @@ def configure_logger(args):
     logger = logging.getLogger("default")
 
 
+class Timer(object):
+    def __init__(self):
+        self.start_time = timer()
+        self.end_time = None
+
+    def start(self):
+        self.start_time = timer()
+        self.end_time = None
+
+    def end(self):
+        self.end_time = timer()
+
+    def message(self, msg):
+        if self.end_time is None:
+            self.end_time = timer()
+        tdiff = difftime(self.end_time, self.start_time, units="secs")
+        return "%s %f sec(s)" % (msg, tdiff)
+
+
 def constr_optim(theta, f, grad=None, ui=None, ci=None, a=None, b=None,
                  hessian=None, bounds=None, method="BFGS",
                  outer_iterations=500, debug=False, args=None):
