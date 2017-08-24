@@ -22,8 +22,6 @@ To run the Isolation Forest / HS-Trees based algorithms, first set the
 following variable in tree_aad.sh:
     For Isolation Forest, set INFERENCE_TYPE=7; and for HSTrees, set INFERENCE_TYPE=11
 
-    bash ./tree_aad.sh toy2 35 1 0.03
-
 Next, run:
 
     bash ./tree_aad.sh toy2 35 1 0.03
