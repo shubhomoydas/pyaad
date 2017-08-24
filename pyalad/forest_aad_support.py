@@ -56,8 +56,8 @@ def forest_aad_unit_tests_battery(X_train, labels, model, metrics, opts,
     output_forest_original = False
     output_transformed_to_file = False
     test_loss_grad = False
-    plot_dataset = data_2D and False
-    plot_rectangular_regions = plot_dataset and False
+    plot_dataset = data_2D and True
+    plot_rectangular_regions = plot_dataset and True
     plot_forest_contours = data_2D and True
     plot_baseline = data_2D and False
     plot_aad = metrics is not None and data_2D and True

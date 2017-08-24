@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 dense = False  # DO NOT Change this!
 
-if False:
+if True:
     # PRODUCTION code
     args = get_command_args(debug=False)
     # print "log file: %s" % args.log_file
@@ -32,24 +32,24 @@ else:
                 "kddcup_sub", "mammography_sub", "shuttle_sub", "yeast", "toy", "toy2"]
 
     dataset = datasets[9]
-    datapath = "/Users/moy/work/datasets/anomaly/%s/fullsamples/%s_1.csv" % (dataset, dataset)
-    outputdir = "/Users/moy/work/git/pyalad/temp"
+    datapath = "./datasets/anomaly/%s/fullsamples/%s_1.csv" % (dataset, dataset)
+    outputdir = "./temp"
 
     budget = 35  # 10
     n_runs = 1
-    forest_type = "hst"
+    inference_type = AAD_IFOREST
     sigma2 = 0.5
     n_jobs = 4
-    add_leaves_only = False
+    add_leaves_only = True
 
-    if forest_type == "ifor":
+    if inference_type == AAD_IFOREST:
         n_trees = 100
         forest_max_depth = 100
         score_type = IFOR_SCORE_TYPE_CONST
         ensemble_score = ENSEMBLE_SCORE_LINEAR
         Ca = 100.
         Cx = 0.001
-    elif forest_type == "hst":
+    elif inference_type == AAD_HSTREES:
         n_trees = 25
         forest_max_depth = 15
         score_type = HST_SCORE_TYPE
@@ -57,20 +57,20 @@ else:
         Ca = 1.
         Cx = 0.001
     else:
-        raise ValueError("Invalid forest type %s" % forest_type)
+        raise ValueError("Invalid inference type %s" % inference_type)
 
     args = get_forest_aad_args(dataset=dataset, n_trees=n_trees,
-                               forest_type=forest_type,
+                               inference_type=inference_type,
                                forest_add_leaf_nodes_only=add_leaves_only,
                                forest_score_type=score_type,
                                forest_max_depth=forest_max_depth,
                                ensemble_score=ensemble_score,
                                sigma2=sigma2, Ca=Ca, Cx=Cx,
                                budget=budget, reruns=n_runs, n_jobs=n_jobs,
-                               log_file="/Users/moy/work/git/pyalad/temp/aad.log")
+                               log_file="./temp/aad.log")
     args.datafile = datapath
     args.resultsdir = os.path.join(outputdir, args.dataset, "%s_aad_%d_%d_%d_sig%4.3f_ca%1.0f_cx%4.3f_%s%s%s" %
-                                   (args.forest_type, args.ifor_n_trees, args.ifor_n_samples, args.budget,
+                                   (update_types[args.inferencetype], args.ifor_n_trees, args.ifor_n_samples, args.budget,
                                     args.sigma2, args.Ca, args.Cx, ensemble_score_names[ensemble_score],
                                     "" if args.forest_type == "ifor" else "_%dd" % args.forest_max_depth,
                                     "" if not args.forest_add_leaf_nodes_only else "_leaf"))
@@ -80,8 +80,15 @@ opts = Opts(args)
 # print opts.str_opts()
 logger.debug(opts.str_opts())
 
+if opts.update_type == AAD_IFOREST:
+    forest_type = "ifor"
+elif opts.update_type == AAD_HSTREES:
+    forest_type = "hst"
+else:
+    raise ValueError("Only tree based inferencetypes (%d|%d) supported." % (AAD_IFOREST, AAD_HSTREES))
+
 run_aad = True
-run_tests = True and opts.reruns == 1
+run_tests = opts.plot2D and opts.reruns == 1
 
 baseline_query_indexes_only = False
 
@@ -96,7 +103,7 @@ labels = np.array([1 if data.iloc[i, 0] == "anomaly" else 0 for i in range(data.
 
 logger.debug("loaded file: %s" % opts.datafile)
 logger.debug("results dir: %s" % opts.resultsdir)
-logger.debug("forest_type: %s" % opts.forest_type)
+logger.debug("forest_type: %s" % forest_type)
 
 mdl = None
 X_train_new = None
@@ -130,7 +137,7 @@ if run_aad:
                         add_leaf_nodes_only=opts.forest_add_leaf_nodes_only,
                         max_depth=opts.forest_max_depth,
                         ensemble_score=opts.ensemble_score,
-                        detector_type=opts.forest_type, n_jobs=opts.n_jobs)
+                        detector_type=forest_type, n_jobs=opts.n_jobs)
         mdl.fit(X_train)
         logger.debug("total #nodes: %d" % (len(mdl.all_regions)))
 
@@ -207,7 +214,7 @@ if run_tests:
                         add_leaf_nodes_only=opts.forest_add_leaf_nodes_only,
                         max_depth=opts.forest_max_depth,
                         ensemble_score=opts.ensemble_score,
-                        detector_type=opts.forest_type, n_jobs=opts.n_jobs)
+                        detector_type=forest_type, n_jobs=opts.n_jobs)
         mdl.fit(X_train)
 
     forest_aad_unit_tests_battery(X_train, labels, mdl, metrics, opts,

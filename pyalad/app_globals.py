@@ -15,6 +15,7 @@ AAD_IFOREST = 7
 SIMPLE_PAIRWISE = 8
 IFOREST_ORIG = 9
 ATGP_IFOREST = 10
+AAD_HSTREES = 11
 
 
 # ==============================
@@ -34,7 +35,7 @@ ensemble_score_names = ["linear", "exp"]
 # Inference type names - first is blank string so these are 1-indexed
 update_types = ["", "simple_online", "online_optim", "aad",
                 "aad_slack", "baseline", "iter_grad", "iforest",
-                "simple_pairwise", "iforest_orig", "if_atgp"]
+                "simple_pairwise", "iforest_orig", "if_atgp", "hstrees"]
 # ------------------------------
 
 # ==============================
@@ -204,11 +205,12 @@ def get_option_list():
     parser.add_argument("--load_model", action="store_true", default=False,
                         help="Whether to load a pre-trained model")
 
+    parser.add_argument("--plot2D", action="store_true", default=False,
+                        help="Whether to plot the data, trees, and countours. Only supported for 2D data")
+
     parser.add_argument("--n_jobs", action="store", type=int, default=1,
                         help="Number of parallel threads (if supported)")
 
-    parser.add_argument("--forest_type", action="store", type=str, default="ifor",
-                        help="Type of forest to construct")
     parser.add_argument("--forest_n_trees", action="store", type=int, default=100,
                         help="Number of trees for Forest")
     parser.add_argument("--forest_n_samples", action="store", type=int, default=256,
@@ -323,9 +325,9 @@ class Opts(object):
         self.ifor_score_type = args.ifor_score_type
         self.ifor_add_leaf_nodes_only = args.ifor_add_leaf_nodes_only
 
+        self.plot2D = args.plot2D
         self.n_jobs = args.n_jobs
 
-        self.forest_type = args.forest_type
         self.forest_n_trees = args.forest_n_trees
         self.forest_n_samples = args.forest_n_samples
         self.forest_score_type = args.forest_score_type
@@ -367,7 +369,8 @@ class Opts(object):
         s = update_types[self.update_type]
         if self.update_type == AAD_UPD_TYPE:
             return "%s_%s" % (s, constraint_types[self.constrainttype])
-        elif self.update_type == AAD_IFOREST or self.update_type == ATGP_IFOREST:
+        elif self.update_type == AAD_IFOREST or self.update_type == ATGP_IFOREST or \
+                self.update_type == AAD_HSTREES:
             return "%s_%s-trees%d_samples%d_nscore%d%s" % \
                    (s, constraint_types[self.constrainttype],
                     self.ifor_n_trees, self.ifor_n_samples, self.ifor_score_type,

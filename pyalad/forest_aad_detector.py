@@ -662,7 +662,7 @@ class AadForest(object):
                 w_prior = self.w
 
             tau_rel = opts.constrainttype == AAD_CONSTRAINT_TAU_INSTANCE
-            if opts.update_type == AAD_IFOREST:
+            if opts.update_type == AAD_IFOREST or opts.update_type == AAD_HSTREES:
                 self.w = self.if_aad_weight_update(self.w, x, y, hf=append(ha, hn),
                                                    w_prior=w_prior, opts=opts, tau_rel=tau_rel,
                                                    linear=(self.ensemble_score == ENSEMBLE_SCORE_LINEAR))
@@ -814,7 +814,7 @@ def sgd(w0, x, y, f, grad, learning_rate=0.01,
 
 
 def get_forest_aad_args(dataset="", inference_type=AAD_IFOREST,
-                        n_trees=100, n_samples=256, forest_type="ifor",
+                        n_trees=100, n_samples=256,
                         forest_add_leaf_nodes_only=False,
                         forest_score_type=IFOR_SCORE_TYPE_CONST,
                         forest_max_depth=15,
@@ -837,7 +837,6 @@ def get_forest_aad_args(dataset="", inference_type=AAD_IFOREST,
         "--Cx=%f" % Cx,
         "--ifor_n_trees=%d" % n_trees,  #  for backward compatibility
         "--ifor_n_samples=%d" % n_samples,  # for backward compatibility
-        "--forest_type=%s" % forest_type,
         "--forest_n_trees=%d" % n_trees,
         "--forest_n_samples=%d" % n_samples,
         "--forest_score_type=%d" % forest_score_type,
