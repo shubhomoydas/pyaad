@@ -16,7 +16,7 @@ matplotlib
 This codebase has three different algorithms:
   - The LODA based AAD
   - The Isolation Forest based AAD
-  - HS Trees based AAD
+  - HS Trees based AAD (**streaming not supported yet**)
 
 To run the Isolation Forest / HS-Trees based algorithms, first set the
 following variable in tree_aad.sh:
