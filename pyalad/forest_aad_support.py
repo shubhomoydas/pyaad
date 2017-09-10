@@ -123,7 +123,7 @@ def plot_aad_2D(x, y, x_forest, xx, yy, forest, metrics,
         Z = forest.get_score(x_if, w)
         Z = Z.reshape(xx.shape)
 
-        pl.contourf(xx, yy, Z, 20)
+        pl.contourf(xx, yy, Z, 20, cmap=plt.cm.get_cmap('jet'))
 
         dp.plot_points(x, pl, labels=y, lbl_color_map={0: "grey", 1: "red"}, s=25)
         # print queried[np.arange(i+1)]
@@ -209,7 +209,7 @@ def plot_forest_baseline_contours_2D(x, y, x_forest, xx, yy, budget, forest,
     y_if = forest.get_score(x_if, w)
     Z = y_if.reshape(xx.shape)
 
-    pl.contourf(xx, yy, Z, 20)
+    pl.contourf(xx, yy, Z, 20, cmap=plt.cm.get_cmap('jet'))
 
     dp.plot_points(x, pl, labels=y, lbl_color_map={0: "grey", 1: "red"}, s=25)
     # print queried[np.arange(i+1)]
@@ -241,7 +241,7 @@ def plot_forest_contours_2D(x, y, xx, yy, budget, forest, pdfpath_contours, dash
 
     dp = DataPlotter(pdfpath=pdfpath_contours, rows=1, cols=1)
     pl = dp.get_next_plot()
-    pl.contourf(xx, yy, Z_if, 20)
+    pl.contourf(xx, yy, Z_if, 20, cmap=plt.cm.get_cmap('jet'))
 
     dp.plot_points(x, pl, labels=y, lbl_color_map={0: "grey", 1: "red"})
 

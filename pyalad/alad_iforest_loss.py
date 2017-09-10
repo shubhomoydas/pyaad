@@ -2,7 +2,7 @@ import numpy as np
 from r_support import *
 
 
-def if_aad_loss_linear(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
+def if_aad_loss_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
                        withprior=False, w_prior=None, sigma2=1.0):
     """
     Computes AAD loss:
@@ -48,7 +48,7 @@ def if_aad_loss_linear(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
             # no loss
             pass
 
-        if tau_rel_loss is not None:
+        if tau_rel_loss is not None and (in_constr_set is None or in_constr_set[i] == 1):
             # TODO: Test this code.
             # add loss relative to tau-th ranked instance
             # loss =
@@ -72,7 +72,7 @@ def if_aad_loss_linear(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
     return loss
 
 
-def if_aad_loss_gradient_linear(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
+def if_aad_loss_gradient_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
                                 withprior=False, w_prior=None, sigma2=1.0):
     """
     Computes jacobian of AAD loss:
@@ -108,7 +108,7 @@ def if_aad_loss_gradient_linear(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=
             pass
 
         # add loss-gradient relative to tau-th ranked instance
-        if x_tau is not None:
+        if x_tau is not None and (in_constr_set is None or in_constr_set[i] == 1):
             # TODO: Test this code.
             # add loss-gradient relative to tau-th ranked instance
             # loss =
@@ -135,7 +135,7 @@ def if_aad_loss_gradient_linear(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=
     return grad
 
 
-def if_aad_loss_exp(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
+def if_aad_loss_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
                     withprior=False, w_prior=None, sigma2=1.0):
     """
     Computes AAD loss:
@@ -150,6 +150,8 @@ def if_aad_loss_exp(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
     :param yi: numpy.array
     :param qval: float
         tau-th quantile value
+    :param in_constr_set: list of int
+        indicators 0/1 whether to include in constraint set or not 
     :param Ca: float
     :param Cn: float
     :param Cx: float
@@ -179,7 +181,7 @@ def if_aad_loss_exp(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
             # no loss
             pass
 
-        if tau_rel_loss is not None:
+        if tau_rel_loss is not None and (in_constr_set is None or in_constr_set[i] == 1):
             # add loss relative to tau-th ranked instance
             # loss =
             #   Cx * (x_tau - xi).w  if yi = 1 and (x_tau - xi).w > 0
@@ -202,7 +204,7 @@ def if_aad_loss_exp(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
     return loss
 
 
-def if_aad_loss_gradient_exp(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
+def if_aad_loss_gradient_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
                              withprior=False, w_prior=None, sigma2=1.0):
     """
     Computes jacobian of AAD loss:
@@ -223,18 +225,21 @@ def if_aad_loss_gradient_exp(w, xi, yi, qval, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0
     for i in range(len(yi)):
         lbl = yi[i]
         if lbl == 1 and vals[i] < qval:
-            loss_a[:] = loss_a - Ca * np.exp(qval - vals[i]) * xi[i, :]
+            exp_diff = np.minimum(np.exp(qval - vals[i]), 1000)  # element-wise
+            # exp_diff = np.exp(qval - vals[i])
+            loss_a[:] = loss_a - Ca * exp_diff * xi[i, :]
             n_anom += 1
         elif lbl == 0 and vals[i] >= qval:
-            loss_n[:] = loss_n + Cn * np.exp(vals[i] - qval) * xi[i, :]
+            exp_diff = np.minimum(np.exp(vals[i] - qval), 1000)  # element-wise
+            # exp_diff = np.exp(vals[i] - qval)
+            loss_n[:] = loss_n + Cn * exp_diff * xi[i, :]
             n_noml += 1
         else:
             # no loss
             pass
 
         # add loss-gradient relative to tau-th ranked instance
-        if x_tau is not None:
-            # TODO: Test this code.
+        if x_tau is not None and (in_constr_set is None or in_constr_set[i] == 1):
             # add loss-gradient relative to tau-th ranked instance
             # loss =
             #   Cx * (x_tau - xi).w  if yi = 1 and (x_tau - xi).w > 0

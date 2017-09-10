@@ -41,9 +41,22 @@ class DataPlotter(object):
 
     def plot_points(self, pts, pl, labels=None,
                     lbl_color_map=None, defaultcol="grey",
-                    edgecolor=None,
-                    s=12, marker='x', plotindexes=None):
-        n = len(pts)
+                    edgecolor=None, facecolors=None,
+                    s=12, marker='x', linewidths=0.8, plotindexes=None):
+        """
+
+        Colors:
+            b: blue
+            g: green
+            r: red
+            c: cyan
+            m: magenta
+            y: yellow
+            k: black
+            w: white
+
+        """
+        n = pts.shape[0]
         lbls = labels if labels is not None else [-1]*n
         if plotindexes is None:
             indexes = range(n)
@@ -56,10 +69,12 @@ class DataPlotter(object):
                       if lbls[j] >= 0 else defaultcol for j in range(n)]
         M = [(pts[j, 0], pts[j, 1], colors[j]) for j in indexes]
         for x, y, col in M:
+            col = col if edgecolor is None else None
+            fc = 'none' if facecolors is None or facecolors == 'none' else col
             # pl.plot(x, y, 'x', color=col, mfc="none", mec=col)
             pl.scatter(x, y, s=s, marker=marker, c=col, alpha=None,
-                       edgecolors=col if edgecolor is None else edgecolor, linewidths=0.8,
-                       facecolors='none')
+                       edgecolors=col if edgecolor is None else edgecolor, linewidths=linewidths,
+                       facecolors=fc)
 
     def save_fig(self):
         if self.fig is not None:
