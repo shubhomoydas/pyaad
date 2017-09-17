@@ -354,8 +354,12 @@ for runidx in opts.get_runidxs():
                                    max_buffer=opts.stream_window)
     sad.init_query_state(opts)
 
-    run_feedback(sad, opts.budget, opts)
-    exit(0)
+    if True:
+        run_feedback(sad, opts.budget, opts)
+        print "This is experimental/demo code for streaming integration and will be application specific." + \
+              " Exiting after reading max %d instances from stream and iterating for %d feedback..." % \
+                (opts.stream_window, opts.budget)
+        exit(0)
 
     all_scores = np.zeros(0)
     all_y = np.zeros(0)
