@@ -7,9 +7,6 @@ from app_globals import *
 from alad_support import *
 from r_support import matrix, cbind
 
-import cPickle
-import gzip
-
 from forest_aad_detector import *
 from results_support import write_sequential_results_to_csv
 
@@ -17,17 +14,6 @@ from results_support import write_sequential_results_to_csv
 To debug:
     pythonw pyalad/forest_aad_main.py
 """
-
-def save_aad_model(filepath, model):
-    f = gzip.open(filepath, 'wb')
-    cPickle.dump(model, f, protocol=cPickle.HIGHEST_PROTOCOL)
-    f.close()
-
-def load_aad_model(filepath):
-    f = gzip.open(filepath, 'rb')
-    model = cPickle.load(f)
-    f.close()
-    return model
 
 logger = logging.getLogger(__name__)
 

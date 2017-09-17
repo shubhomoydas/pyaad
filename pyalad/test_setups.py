@@ -6,7 +6,7 @@ def setup_subdirs(opts):
         logger.debug("creating folder: %s" % (opts.cachedir,))
         dir_create(opts.cachedir)
 
-    resdir = os.path.join(opts.resultsdir, opts.update_type_str())
+    resdir = os.path.join(opts.resultsdir, opts.detector_type_str())
     if not os.path.isdir(resdir):
         logger.debug("creating folder: %s" % (resdir,))
         dir_create(resdir)
@@ -40,10 +40,10 @@ def test_args_alad_loda(dataset, op="nop"):
         # "--querytype=%d" % (QUERY_RANDOM,),
         # "--querytype=%d" % (QUERY_SEQUENTIAL,),
         #
-        # "--inferencetype=%d" % (SIMPLE_UPD_TYPE,),
-        # "--inferencetype=%d" % (SIMPLE_UPD_TYPE_R_OPTIM,),
-        "--inferencetype=%d" % (AAD_UPD_TYPE,),
-        # "--inferencetype=%d" % (AAD_SLACK_CONSTR_UPD_TYPE,),
+        # "--detector_type=%d" % (SIMPLE_UPD_TYPE,),
+        # "--detector_type=%d" % (SIMPLE_UPD_TYPE_R_OPTIM,),
+        "--detector_type=%d" % (AAD_UPD_TYPE,),
+        # "--detector_type=%d" % (AAD_SLACK_CONSTR_UPD_TYPE,),
         #
         "--constrainttype=%d" % (AAD_CONSTRAINT_PAIRWISE,),
         # "--constrainttype=%d" % (AAD_CONSTRAINT_PAIRWISE_WEIGHTS_POSITIVE_SUM_1,),
@@ -75,23 +75,23 @@ def test_args_alad_loda(dataset, op="nop"):
         # , "--optimlib=cvxopt"
         #
         # , "--withmeanrelativeloss"
-        , "--log_file=temp/pyalad.log"
-        , "--filedir=datasets/anomaly/%s/fullsamples" % (dataset,)
-        , "--cachedir=datasets/anomaly/%s/fullmodel/pyalad" % (dataset,)
-        , "--resultsdir=datasets/anomaly/%s/fullresults/pyalad" % (dataset,)
-        , "--plotsdir=datasets/anomaly/%s/fullplots" % (dataset,)
-        # , "--filedir=datasets/anomaly/%s/fullsamples" % (dataset,)
-        # , "--cachedir=datasets/anomaly/%s/fullmodel" % (dataset,)
-        # , "--resultsdir=datasets/anomaly/%s/fullresults" % (dataset,)
-        # , "--plotsdir=datasets/anomaly/%s/fullplots" % (dataset,)
+        , "--log_file=/Users/moy/work/temp/pyalad.log"
+        , "--filedir=/Users/moy/work/datasets/anomaly/%s/fullsamples" % (dataset,)
+        , "--cachedir=/Users/moy/work/datasets/anomaly/%s/fullmodel/pyalad" % (dataset,)
+        , "--resultsdir=/Users/moy/work/datasets/anomaly/%s/fullresults/pyalad" % (dataset,)
+        , "--plotsdir=/Users/moy/work/datasets/anomaly/%s/fullplots" % (dataset,)
+        # , "--filedir=/scratch/datasets/anomaly/%s/fullsamples" % (dataset,)
+        # , "--cachedir=/scratch/datasets/anomaly/%s/fullmodel" % (dataset,)
+        # , "--resultsdir=/scratch/datasets/anomaly/%s/fullresults" % (dataset,)
+        # , "--plotsdir=/scratch/datasets/anomaly/%s/fullplots" % (dataset,)
         #
         , "--ensembletype=loda"
         # , "--ensembletype=regular"
         #
         , "--runtype=multi"
         # , "--runtype=simple"
-        , "--datafile=datasets/anomaly/%s/fullsamples/%s_1.csv" % (dataset, dataset)
-        , "--scoresfile=datasets/anomaly/%s/featurebag_lof/%s_1.csv" % (dataset, dataset)
+        , "--datafile=/Users/moy/work/datasets/anomaly/%s/fullsamples/%s_1.csv" % (dataset, dataset)
+        , "--scoresfile=/Users/moy/work/datasets/anomaly/%s/featurebag_lof/%s_1.csv" % (dataset, dataset)
     ]
     return test_args
 

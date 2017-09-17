@@ -174,8 +174,9 @@ class PrecomputedEnsemble(EnsembleManager):
     def __init__(self, opts):
         self.modelmanager = ModelManager.get_model_manager(opts.cachetype)
 
-    def load_data(self, samples, labels, opts):
-        scores, labels = load_ensemble_scores(scoresfile=opts.scoresfile, header=True)
+    def load_data(self, samples, labels, opts, scores=None):
+        if scores is None:
+            scores, labels = load_ensemble_scores(scoresfile=opts.scoresfile, header=True)
         n, m = scores.shape
         detector_wts = rep(1./np.sqrt(m), m)
         agg_scores = scores.dot(detector_wts)

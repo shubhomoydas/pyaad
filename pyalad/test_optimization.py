@@ -2,9 +2,9 @@ from loda_support import *
 
 
 """
-python pyalad/test_optimization.py --op=constr_optim --debug --log_file=temp/pyalad.log
-python pyalad/test_optimization.py --op=constr_optim_prior --debug --log_file=temp/pyalad.log
-python pyalad/test_optimization.py --op=cvxopt --debug --log_file=temp/pyalad.log
+python pyalad/test_optimization.py --op=constr_optim --debug --log_file=/Users/moy/work/temp/pyalad.log
+python pyalad/test_optimization.py --op=constr_optim_prior --debug --log_file=/Users/moy/work/temp/pyalad.log
+python pyalad/test_optimization.py --op=cvxopt --debug --log_file=/Users/moy/work/temp/pyalad.log
 """
 
 

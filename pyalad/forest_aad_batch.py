@@ -7,14 +7,16 @@ from app_globals import *
 from alad_support import *
 from r_support import matrix, cbind
 
-from alad_iforest import *
+from forest_aad_detector import *
 from results_support import write_sequential_results_to_csv
-from isolation_forest_support import iforest_unit_tests_battery, \
-    get_original_iforest_results, get_queried_indexes, write_baseline_query_indexes
+from forest_aad_support import forest_aad_unit_tests_battery, \
+    get_queried_indexes, write_baseline_query_indexes, \
+    evaluate_forest_original, prepare_forest_aad_debug_args
+from gp_support import *
 
 """
 To debug:
-    pythonw pyalad/isolation_forest_detector.py
+    pythonw pyalad/forest_aad_batch.py
 """
 
 logger = logging.getLogger(__name__)
@@ -28,31 +30,17 @@ if True:
     configure_logger(args)
 else:
     # DEBUG code
-    datasets = ["abalone", "ann_thyroid_1v3", "cardiotocography_1", "covtype_sub",
-                "kddcup_sub", "mammography_sub", "shuttle_sub", "toy", "yeast"]
-
-    dataset = datasets[7]
-    datapath = "/Users/moy/work/datasets/anomaly/%s/fullsamples/%s_1.csv" % (dataset, dataset)
-    outputdir = "/Users/moy/work/ADAPT/data/bovia_scores/feedback"
-
-    budget = 0  # 10
-    n_runs = 10
-    args = get_aad_iforest_args(dataset=dataset, budget=budget, reruns=n_runs,
-                                log_file="/Users/moy/work/ADAPT/data/bovia_scores/feedback/alad.txt")
-    args.datafile = datapath
-    args.resultsdir = os.path.join(outputdir, args.dataset, "if_aad_%d_%d_%d_sig%4.3f_cx%4.3f" %
-                                   (args.ifor_n_trees, args.ifor_n_samples, args.budget,
-                                    args.sigma2, args.Cx))
-    dir_create(args.resultsdir)
+    args = prepare_forest_aad_debug_args()
 
 opts = Opts(args)
 # print opts.str_opts()
 logger.debug(opts.str_opts())
 
-run_aad = False
-run_tests = True and opts.reruns == 1
+if opts.streaming:
+    raise ValueError("Streaming not supported")
 
-run_orig_iforest_only = opts.detector_type == IFOREST_ORIG
+run_aad = True
+run_tests = opts.plot2D and opts.reruns == 1 and opts.forest_score_type != ORIG_TREE_SCORE_TYPE
 
 baseline_query_indexes_only = False
 
@@ -67,6 +55,7 @@ labels = np.array([1 if data.iloc[i, 0] == "anomaly" else 0 for i in range(data.
 
 logger.debug("loaded file: %s" % opts.datafile)
 logger.debug("results dir: %s" % opts.resultsdir)
+logger.debug("forest_type: %s" % detector_types[opts.detector_type])
 
 mdl = None
 X_train_new = None
@@ -94,17 +83,24 @@ if run_aad:
         rng = np.random.RandomState(args.randseed + opts.fid * opts.reruns + runidx)
 
         # fit the model
-        mdl = AadIsolationForest(n_estimators=opts.ifor_n_trees,
-                                 max_samples=min(opts.ifor_n_samples, X_train.shape[0]),
-                                 score_type=opts.ifor_score_type, random_state=rng,
-                                 add_leaf_nodes_only=opts.ifor_add_leaf_nodes_only)
+        mdl = AadForest(n_estimators=opts.forest_n_trees,
+                        max_samples=min(opts.forest_n_samples, X_train.shape[0]),
+                        score_type=opts.forest_score_type, random_state=rng,
+                        add_leaf_nodes_only=opts.forest_add_leaf_nodes_only,
+                        max_depth=opts.forest_max_depth,
+                        ensemble_score=opts.ensemble_score,
+                        detector_type=opts.detector_type, n_jobs=opts.n_jobs)
         mdl.fit(X_train)
-        logger.debug("total #nodes: %d" % (len(mdl.all_regions)))
 
-        if run_orig_iforest_only:
-            orig_num_seen = get_original_iforest_results(X_train, labels, mdl, opts.fid, runidx, opts)
-            all_orig_num_seen = rbind(all_orig_num_seen, orig_num_seen)
+        if opts.forest_score_type == ORIG_TREE_SCORE_TYPE:
+            orig_num_seen = evaluate_forest_original(X_train, labels, opts.budget, mdl, x_new=None)
+            tmp = np.zeros((1, 2+orig_num_seen.shape[1]), dtype=orig_num_seen.dtype)
+            tmp[0, 0:2] = [opts.fid, runidx]
+            tmp[0, 2:tmp.shape[1]] = orig_num_seen[0, :]
+            all_orig_num_seen = rbind(all_orig_num_seen, tmp)
             continue
+
+        logger.debug("total #nodes: %d" % (len(mdl.all_regions)))
 
         X_train_new = mdl.transform_to_region_features(X_train, dense=dense)
 
@@ -124,7 +120,7 @@ if run_aad:
         if False:
             metrics = alad_ensemble(ensemble, opts)
         else:
-            metrics = mdl.aad_ensemble(ensemble, opts)
+            metrics = mdl.aad_learn_ensemble_weights_with_budget(ensemble, opts)
 
         if metrics is not None:
             num_seen, num_seen_baseline, queried_indexes, queried_indexes_baseline = \
@@ -169,16 +165,6 @@ if run_aad:
         write_baseline_query_indexes(baseline_query_info, opts)
 
 if run_tests:
-    rng = np.random.RandomState(args.randseed)
-
-    if mdl is None:
-        # fit the model
-        mdl = AadIsolationForest(n_estimators=opts.ifor_n_trees,
-                                 max_samples=min(opts.ifor_n_samples, X_train.shape[0]),
-                                 score_type=opts.ifor_score_type, random_state=rng,
-                                 add_leaf_nodes_only=opts.ifor_add_leaf_nodes_only)
-        mdl.fit(X_train)
-
-    iforest_unit_tests_battery(X_train, labels, mdl, metrics, opts,
-                               args.resultsdir, dataset_name=args.dataset)
+    forest_aad_unit_tests_battery(X_train, labels, mdl, metrics, opts,
+                                  args.resultsdir, dataset_name=args.dataset)
 

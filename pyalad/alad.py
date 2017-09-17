@@ -27,5 +27,5 @@ if __name__ == '__main__':
     opts.runidx = 0
     write_sequential_results_to_csv(alad_results, opts)
 
-    print "completed alad %s for %s" % (opts.update_type_str(), opts.dataset,)
+    print "completed alad %s for %s" % (opts.detector_type_str(), opts.dataset,)
 

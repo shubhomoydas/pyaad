@@ -12,6 +12,7 @@ from r_support import matrix, cbind
 from forest_aad_detector import *
 from data_plotter import *
 from results_support import *
+from gp_support import *
 
 
 def get_queried_indexes(scores, labels, opts):
@@ -62,8 +63,8 @@ def forest_aad_unit_tests_battery(X_train, labels, model, metrics, opts,
     plot_baseline = data_2D and False
     plot_aad = metrics is not None and data_2D and True
 
-    pdfpath_baseline = "%s/if_baseline.pdf" % outputdir
-    pdfpath_orig_if_contours = "%s/if_contours.pdf" % outputdir
+    pdfpath_baseline = "%s/tree_baseline.pdf" % outputdir
+    pdfpath_orig_if_contours = "%s/score_contours.pdf" % outputdir
 
     logger.debug("Number of regions: %d" % len(model.d))
 
@@ -88,10 +89,10 @@ def forest_aad_unit_tests_battery(X_train, labels, model, metrics, opts,
         logger.debug(tm.message("plotted contours"))
 
     if output_transformed_to_file:
-        write_sparsemat_to_file(os.path.join(outputdir, "iforest_features.csv"),
+        write_sparsemat_to_file(os.path.join(outputdir, "forest_features.csv"),
                                 X_train_new, fmt='%3.2f', delimiter=",")
         x_tmp = np.vstack((model.d, model.node_samples, model.frac_insts))
-        write_sparsemat_to_file(os.path.join(outputdir, "iforest_node_info.csv"),
+        write_sparsemat_to_file(os.path.join(outputdir, "forest_node_info.csv"),
                                 x_tmp.T, fmt='%3.2f', delimiter=",")
 
     if test_loss_grad:
@@ -104,6 +105,14 @@ def forest_aad_unit_tests_battery(X_train, labels, model, metrics, opts,
     if plot_aad and metrics is not None:
         plot_aad_2D(X_train, labels, X_train_new, xx, yy, model,
                     metrics, outputdir, dash_xy, dash_wh)
+
+        if False:
+            plot_aad_gp(X_train, labels, X_train_new, xx, yy, model,
+                        metrics, outputdir, dash_xy, dash_wh)
+
+        if False:
+            plot_aad_score_var(X_train, labels, X_train_new, xx, yy, model,
+                               metrics, outputdir, dash_xy, dash_wh)
 
 
 def plot_aad_2D(x, y, x_forest, xx, yy, forest, metrics,
@@ -126,6 +135,125 @@ def plot_aad_2D(x, y, x_forest, xx, yy, forest, metrics,
         pl.contourf(xx, yy, Z, 20, cmap=plt.cm.get_cmap('jet'))
 
         dp.plot_points(x, pl, labels=y, lbl_color_map={0: "grey", 1: "red"}, s=25)
+        # print queried[np.arange(i+1)]
+        # print X_train[queried[np.arange(i+1)], :]
+        dp.plot_points(matrix(x[queried[np.arange(i+1)], :], nrow=i+1),
+                       pl, labels=y[queried[np.arange(i+1)]], defaultcol="red",
+                       lbl_color_map={0: "green", 1: "red"}, edgecolor=None, facecolors=True,
+                       marker=matplotlib.markers.MarkerStyle('o', fillstyle=None), s=35)
+
+        # plot the sidebar
+        anom_scores = forest.get_score(x_forest, w)
+        anom_order = np.argsort(-anom_scores)
+        anom_idxs = np.where(y[anom_order] == 1)[0]
+        dash = 1 - (anom_idxs * 1.0 / x.shape[0])
+        plot_sidebar(dash, dash_xy, dash_wh, pl)
+
+        dp.close()
+
+
+def plot_aad_score_var(x, y, x_forest, xx, yy, forest, metrics,
+                outputdir, dash_xy, dash_wh):
+    # use this to plot the AAD feedback
+
+    x_test = np.c_[xx.ravel(), yy.ravel()]
+    x_test_forest = forest.transform_to_region_features(x_test, dense=False)
+
+    queried = np.array(metrics.queried)
+    for i, q in enumerate(queried):
+        pdfpath = "%s/score_iter_%02d.pdf" % (outputdir, i)
+        dp = DataPlotter(pdfpath=pdfpath, rows=1, cols=1)
+        pl = dp.get_next_plot()
+
+        w = metrics.all_weights[i, :]
+        s_train = forest.get_score(x_forest, w)
+        ranked_indexes = np.argsort(-s_train, )
+        # s_test = forest.get_score(x_test_forest, w)
+        test_indexes = metrics.test_indexes[i]
+        score_eval_set = x_test_forest
+        score_var, test_indexes, v_eval = \
+            get_score_variances(x=x_forest, w=w,
+                                ordered_indexes=ranked_indexes,
+                                queried_indexes=queried,
+                                n_test=len(test_indexes) if test_indexes is not None else 10,
+                                test_indexes=test_indexes,
+                                eval_set=score_eval_set,
+                                n_closest=9)
+        qpos = np.argmax(score_var)
+        q = test_indexes[qpos]
+        logger.debug("score_var:\n%s\ntest_indexes:\n%s" %
+                     (str(list(score_var)), str(list(test_indexes))))
+        logger.debug("qpos: %d, query instance: %d, var: %f, queried:%s" %
+                     (qpos, q, score_var[qpos], str(list(queried[np.arange(i)]))))
+
+        if score_eval_set is not None:
+            Z = v_eval.reshape(xx.shape)
+
+            levels = np.linspace(np.min(v_eval), np.max(v_eval), 20)
+            CS = pl.contourf(xx, yy, Z, levels, cmap=plt.cm.get_cmap('jet'))
+            cbar = plt.colorbar(CS)
+            cbar.ax.set_ylabel('score variance')
+
+        dp.plot_points(x, pl, labels=y, lbl_color_map={0: "grey", 1: "red"}, s=25)
+        dp.plot_points(x[test_indexes, :], pl, marker='o', defaultcol='magenta',
+                       s=60, edgecolor='magenta', facecolors='none')
+        dp.plot_points(matrix(x[queried[np.arange(i+1)], :], nrow=i+1),
+                       pl, labels=y[queried[np.arange(i+1)]], defaultcol="red",
+                       lbl_color_map={0: "green", 1: "red"}, edgecolor=None, facecolors=True,
+                       marker=matplotlib.markers.MarkerStyle('o', fillstyle=None), s=35)
+
+        # plot the sidebar
+        anom_scores = forest.get_score(x_forest, w)
+        anom_order = np.argsort(-anom_scores)
+        anom_idxs = np.where(y[anom_order] == 1)[0]
+        dash = 1 - (anom_idxs * 1.0 / x.shape[0])
+        plot_sidebar(dash, dash_xy, dash_wh, pl)
+
+        dp.close()
+
+
+def plot_aad_gp(x, y, x_forest, xx, yy, forest, metrics,
+                outputdir, dash_xy, dash_wh):
+    # use this to plot the AAD feedback
+
+    x_test = np.c_[xx.ravel(), yy.ravel()]
+    x_test_forest = forest.transform_to_region_features(x_test, dense=False)
+
+    queried = np.array(metrics.queried)
+    for i, q in enumerate(queried):
+        pdfpath = "%s/gp_iter_%02d.pdf" % (outputdir, i)
+        dp = DataPlotter(pdfpath=pdfpath, rows=1, cols=1)
+        pl = dp.get_next_plot()
+
+        w = metrics.all_weights[i, :]
+        s_train = forest.get_score(x_forest, w)
+        ranked_indexes = np.argsort(-s_train, )
+        # s_test = forest.get_score(x_test_forest, w)
+
+        gp_eval_set = x_test_forest
+        gp_score, gp_var, train_indexes, test_indexes, v_eval = \
+            get_gp_predictions(x=x_forest, y=s_train,
+                               orig_x=x,
+                               ordered_indexes=ranked_indexes,
+                               queried_indexes=queried,
+                               n_train=100, n_test=30, length_scale=40,
+                               eval_set=gp_eval_set, orig_eval_set=x_test,
+                               n_closest=9)
+        logger.debug("gp_var:\n%s\ntest_indexes:\n%s" % (str(list(gp_var)), str(list(test_indexes))))
+
+        if gp_eval_set is not None:
+            Z = v_eval.reshape(xx.shape)
+
+            levels = np.linspace(0., 1., 20)
+            CS = pl.contourf(xx, yy, Z, levels, cmap=plt.cm.get_cmap('jet'))
+            cbar = plt.colorbar(CS)
+            cbar.ax.set_ylabel('score variance')
+
+        dp.plot_points(x, pl, labels=y, lbl_color_map={0: "grey", 1: "red"}, s=25)
+        dp.plot_points(x[train_indexes, :], pl, marker='o', defaultcol='blue',
+                       s=35, edgecolor='blue', facecolors='none')
+        dp.plot_points(x[test_indexes, :], pl, marker='o', defaultcol='magenta',
+                       s=60, edgecolor='magenta', facecolors='none')
         # print queried[np.arange(i+1)]
         # print X_train[queried[np.arange(i+1)], :]
         dp.plot_points(matrix(x[queried[np.arange(i+1)], :], nrow=i+1),
@@ -184,7 +312,7 @@ def evaluate_forest_original(x, y, budget, forest, x_new=None):
         n_found_baseline = np.cumsum(y[queried[np.arange(budget)]])
         n_found = np.vstack((n_found_baseline, n_found_orig)).T
     else:
-        n_found = n_found_orig.T
+        n_found = np.reshape(n_found_orig, (1, len(n_found_orig)))
     return n_found
 
 
@@ -228,7 +356,7 @@ def plot_forest_baseline_contours_2D(x, y, x_forest, xx, yy, budget, forest,
 
 
 def plot_forest_contours_2D(x, y, xx, yy, budget, forest, pdfpath_contours, dash_xy, dash_wh):
-    # Original IsolationForest contours
+    # Original detector contours
     baseline_scores = 0.5 - forest.decision_function(x)
     queried = np.argsort(-baseline_scores)
     # logger.debug("baseline scores:%s\n%s" % (str(baseline_scores.shape), str(list(baseline_scores))))
@@ -279,3 +407,75 @@ def plot_dataset_2D(x, y, forest, plot_regions, regcols, pdf_folder):
                 plot_rect_region(pl, region, regcols[i % len(regcols)], axis_lims)
     dp.close()
 
+
+def prepare_forest_aad_debug_args():
+    datasets = ["abalone", "ann_thyroid_1v3", "cardiotocography_1", "covtype_sub",
+                "kddcup_sub", "mammography_sub", "shuttle_sub", "yeast", "toy", "toy2"]
+
+    dataset = datasets[9]
+    datapath = "./datasets/anomaly/%s/fullsamples/%s_1.csv" % (dataset, dataset)
+    outputdir = "./temp"
+
+    budget = 35
+    n_runs = 2
+    inference_type = AAD_RSFOREST
+    # inference_type = AAD_HSTREES
+    # inference_type = AAD_IFOREST
+    sigma2 = 0.5
+    n_jobs = 4
+    add_leaves_only = False
+    plot2D = True
+
+    streaming = True
+    stream_window = 64
+    allow_stream_update = True
+
+    if inference_type == AAD_IFOREST:
+        n_trees = 100
+        forest_max_depth = 100
+        score_type = IFOR_SCORE_TYPE_CONST
+        ensemble_score = ENSEMBLE_SCORE_LINEAR
+        Ca = 100.
+        Cx = 0.001
+    elif inference_type == AAD_HSTREES:
+        n_trees = 25
+        forest_max_depth = 7
+        score_type = HST_SCORE_TYPE
+        ensemble_score = ENSEMBLE_SCORE_LINEAR
+        Ca = 1.
+        Cx = 0.001
+    elif inference_type == AAD_RSFOREST:
+        n_trees = 30
+        forest_max_depth = 7
+        score_type = RSF_LOG_SCORE_TYPE
+        # score_type = RSF_SCORE_TYPE
+        # score_type = ORIG_TREE_SCORE_TYPE
+        ensemble_score = ENSEMBLE_SCORE_LINEAR
+        Ca = 1.
+        Cx = 0.001
+    else:
+        raise ValueError("Invalid inference type %s" % inference_type)
+
+    args = get_forest_aad_args(dataset=dataset, n_trees=n_trees,
+                               detector_type=inference_type,
+                               forest_add_leaf_nodes_only=add_leaves_only,
+                               forest_score_type=score_type,
+                               forest_max_depth=forest_max_depth,
+                               ensemble_score=ensemble_score,
+                               sigma2=sigma2, Ca=Ca, Cx=Cx,
+                               budget=budget, reruns=n_runs, n_jobs=n_jobs,
+                               log_file="./temp/aad.log", plot2D=plot2D,
+                               streaming=streaming, stream_window=stream_window,
+                               allow_stream_update=allow_stream_update)
+    args.datafile = datapath
+    args.resultsdir = os.path.join(outputdir, args.dataset,
+                                   "%s_trees%d_samples%d_q%d_bd%d_nscore%d%s_tau%1.2f_sig%4.3f_ca%1.0f_cx%4.3f_%s%s%s" %
+                                   (detector_types[args.detector_type], args.ifor_n_trees, args.ifor_n_samples,
+                                    args.querytype, args.budget, args.forest_score_type,
+                                    "" if not args.forest_add_leaf_nodes_only else "_leaf",
+                                    args.tau,
+                                    args.sigma2, args.Ca, args.Cx, ensemble_score_names[ensemble_score],
+                                    "" if args.detector_type == AAD_IFOREST else "_d%d" % args.forest_max_depth,
+                                    "_stream" if streaming else ""))
+    dir_create(args.resultsdir)
+    return args

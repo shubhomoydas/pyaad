@@ -3,7 +3,7 @@ from r_support import *
 from copy import copy
 
 # ==============================
-# Inference types
+# Detector types
 # ------------------------------
 SIMPLE_UPD_TYPE = 1
 SIMPLE_UPD_TYPE_R_OPTIM = 2
@@ -16,10 +16,11 @@ SIMPLE_PAIRWISE = 8
 IFOREST_ORIG = 9
 ATGP_IFOREST = 10
 AAD_HSTREES = 11
+AAD_RSFOREST = 12
 
 
 # ==============================
-# Isolation Forest Score Types
+# Forest Score Types
 # ------------------------------
 IFOR_SCORE_TYPE_INV_PATH_LEN = 0
 IFOR_SCORE_TYPE_INV_PATH_LEN_EXP = 1
@@ -27,19 +28,22 @@ IFOR_SCORE_TYPE_NORM = 2
 IFOR_SCORE_TYPE_CONST = 3
 IFOR_SCORE_TYPE_NEG_PATH_LEN = 4
 HST_SCORE_TYPE = 5
+RSF_SCORE_TYPE = 6
+RSF_LOG_SCORE_TYPE = 7
+ORIG_TREE_SCORE_TYPE = 8
 
 ENSEMBLE_SCORE_LINEAR = 0  # linear combination of scores
 ENSEMBLE_SCORE_EXPONENTIAL = 1  # exp(linear combination)
 ensemble_score_names = ["linear", "exp"]
 
-# Inference type names - first is blank string so these are 1-indexed
-update_types = ["", "simple_online", "online_optim", "aad",
+# Detector type names - first is blank string so these are 1-indexed
+detector_types = ["", "simple_online", "online_optim", "aad",
                 "aad_slack", "baseline", "iter_grad", "iforest",
-                "simple_pairwise", "iforest_orig", "if_atgp", "hstrees"]
+                "simple_pairwise", "iforest_orig", "if_atgp", "hstrees", "rsfor"]
 # ------------------------------
 
 # ==============================
-# Constraint types when Inference Type is AAD_PAIRWISE_CONSTR_UPD_TYPE
+# Constraint types when Detector Type is AAD_PAIRWISE_CONSTR_UPD_TYPE
 # ------------------------------
 AAD_CONSTRAINT_NONE = 0  # no constraints
 AAD_CONSTRAINT_PAIRWISE = 1  # slack vars [0, Inf]; weights [-Inf, Inf]
@@ -69,9 +73,11 @@ QUERY_BETA_ACTIVE = 2
 QUERY_QUANTILE = 3
 QUERY_RANDOM = 4
 QUERY_SEQUENTIAL = 5
+QUERY_GP = 6
+QUERY_SCORE_VAR = 7
 
 # first blank string makes the other names 1-indexed
-query_type_names = ["", "top", "beta_active", "quantile", "random", "sequential"]
+query_type_names = ["", "top", "beta_active", "quantile", "random", "sequential", "gp", "scvar"]
 # ------------------------------
 
 
@@ -143,7 +149,7 @@ def get_option_list():
                         help="Penalty on nominals")
     parser.add_argument("--Cx", action="store", type=float, default=1000.,
                         help="Penalty on constraints")
-    parser.add_argument("--inferencetype", action="store", type=int, default=AAD_UPD_TYPE,
+    parser.add_argument("--detector_type", action="store", type=int, default=AAD_UPD_TYPE,
                         help="Inference algorithm (simple_online(1) / online_optim(2) / aad_pairwise(3))")
     parser.add_argument("--constrainttype", action="store", type=int, default=AAD_CONSTRAINT_PAIRWISE,
                         help="Inference algorithm (simple_online(1) / online_optim(2) / aad_pairwise(3))")
@@ -224,6 +230,15 @@ def get_option_list():
     parser.add_argument("--forest_max_depth", action="store", type=int, default=15,
                         help="Number of samples to build each tree in Forest")
 
+    parser.add_argument("--n_explore", action="store", type=int, default=20,
+                        help="Number of top ranked instances to evaluate during exploration (query types GP and score variance)")
+
+    parser.add_argument("--streaming", action="store_true", default=False,
+                        help="Whether to run the algorithm in streaming setting")
+    parser.add_argument("--stream_window", action="store", type=int, default=512,
+                        help="Number of instances to hold in buffer before updating the model")
+    parser.add_argument("--allow_stream_update", action="store_true", default=False,
+                        help="Update the model when the window buffer is full in the streaming setting")
     return parser
 
 
@@ -274,7 +289,7 @@ class Opts(object):
         self.Cx = args.Cx  # penalization for slack in pairwise constraints
         self.topK = args.topK
         self.tau = args.tau
-        self.update_type = args.inferencetype
+        self.detector_type = args.detector_type
         self.constrainttype = args.constrainttype
         self.ignoreAATPloss = args.ignoreAATPloss
         self.orderbyviolated = args.orderbyviolated
@@ -334,7 +349,13 @@ class Opts(object):
         self.forest_add_leaf_nodes_only = args.forest_add_leaf_nodes_only
         self.forest_max_depth = args.forest_max_depth
 
+        self.n_explore = args.n_explore
+
         self.ensemble_score = args.ensemble_score
+
+        self.streaming = args.streaming
+        self.stream_window = args.stream_window
+        self.allow_stream_update = args.allow_stream_update
 
         self.modelfile = args.modelfile
         self.load_model = args.load_model
@@ -365,16 +386,19 @@ class Opts(object):
             s = "%s_nc%d_d%d" % (s, self.query_search_candidates, self.query_search_depth)
         return s
 
-    def update_type_str(self):
-        s = update_types[self.update_type]
-        if self.update_type == AAD_UPD_TYPE:
+    def streaming_str(self):
+        return "sw%d_asu%s" % (self.stream_window, str(self.allow_stream_update))
+
+    def detector_type_str(self):
+        s = detector_types[self.detector_type]
+        if self.detector_type == AAD_UPD_TYPE:
             return "%s_%s" % (s, constraint_types[self.constrainttype])
-        elif self.update_type == AAD_IFOREST or self.update_type == ATGP_IFOREST or \
-                self.update_type == AAD_HSTREES:
+        elif (self.detector_type == AAD_IFOREST or self.detector_type == ATGP_IFOREST or
+                self.detector_type == AAD_HSTREES or self.detector_type == AAD_RSFOREST):
             return "%s_%s-trees%d_samples%d_nscore%d%s" % \
                    (s, constraint_types[self.constrainttype],
-                    self.ifor_n_trees, self.ifor_n_samples, self.ifor_score_type,
-                    "_leaf" if self.ifor_add_leaf_nodes_only else "")
+                    self.forest_n_trees, self.forest_n_samples, self.forest_score_type,
+                    "_leaf" if self.forest_add_leaf_nodes_only else "")
         else:
             return s
 
@@ -398,9 +422,10 @@ class Opts(object):
         orderbyviolatedsig = "-by_violated" if self.orderbyviolated else ""
         ignoreAATPlosssig = "-noAATP" if self.ignoreAATPloss else ""
         randomInstanceAtStartSig = "-randFirst" if self.random_instance_at_start else ""
+        streaming_sig = "-" + self.streaming_str() if self.streaming else ""
         nameprefix = (self.dataset +
-                      ("-" + self.update_type_str()) +
-                      ("_" + RELATIVE_TO_NAMES[self.relativeto] if self.update_type == SIMPLE_UPD_TYPE else "") +
+                      ("-" + self.detector_type_str()) +
+                      ("_" + RELATIVE_TO_NAMES[self.relativeto] if self.detector_type == SIMPLE_UPD_TYPE else "") +
                       randomInstanceAtStartSig +
                       ("-single" if self.single_inst_feedback else "") +
                       ("-" + self.query_name_str()) +
@@ -415,14 +440,15 @@ class Opts(object):
                       filesig +
                       ("-bd%d" % (self.budget,)) +
                       ("-tau%0.3f" % (self.tau,)) +
-                      ("-tau_nominal" if self.update_type == SIMPLE_UPD_TYPE
+                      ("-tau_nominal" if self.detector_type == SIMPLE_UPD_TYPE
                                          and self.relativeto == RELATIVE_QUANTILE
                                          and self.tau_nominal != 0.5 else "") +
                       ("-topK%d" % (self.topK,)) +
                       ("-pseudoanom_always_%s" % (self.pseudoanomrank_always,)) +
                       optimsig +
                       orderbyviolatedsig +
-                      ignoreAATPlosssig
+                      ignoreAATPlosssig +
+                      streaming_sig
                       )
         return nameprefix.replace(".", "_")
 
@@ -434,9 +460,10 @@ class Opts(object):
         orderbyviolatedsig = "-by_violated" if self.orderbyviolated else ""
         ignoreAATPlosssig = "-noAATP" if self.ignoreAATPloss else ""
         randomInstanceAtStartSig = "-randFirst" if self.random_instance_at_start else ""
+        streaming_sig = "-" + self.streaming_str() if self.streaming else ""
         srr = (("[" + self.dataset + "]") +
-               ("-%s" % (self.update_type_str(),)) +
-               (("_%s" % (RELATIVE_TO_NAMES[self.relativeto],)) if self.update_type == SIMPLE_UPD_TYPE else "") +
+               ("-%s" % (self.detector_type_str(),)) +
+               (("_%s" % (RELATIVE_TO_NAMES[self.relativeto],)) if self.detector_type == SIMPLE_UPD_TYPE else "") +
                randomInstanceAtStartSig +
                ("-single" if self.single_inst_feedback else "") +
                ("-query_" + self.query_name_str()) +
@@ -451,7 +478,7 @@ class Opts(object):
                ("-reruns" + str(self.reruns)) +
                ("-bd" + str(self.budget)) +
                ("-tau" + str(self.tau)) +
-               ("-tau_nominal" if self.update_type == SIMPLE_UPD_TYPE
+               ("-tau_nominal" if self.detector_type == SIMPLE_UPD_TYPE
                                   and self.relativeto == RELATIVE_QUANTILE
                                   and self.tau_nominal != 0.5 else "") +
                ("-topK" + str(self.topK)) +
@@ -460,7 +487,8 @@ class Opts(object):
                ("sngl_fbk" if self.single_inst_feedback else "") +
                ("-optimlib_%s" % (self.optimlib,)) +
                orderbyviolatedsig +
-               ignoreAATPlosssig
+               ignoreAATPlosssig +
+               streaming_sig
                )
         return srr
 

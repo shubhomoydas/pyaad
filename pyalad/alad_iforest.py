@@ -433,11 +433,56 @@ class AadIsolationForest(object):
         s = x.dot(w)
         return quantile(s, (1.0 - (topK * 1.0 / float(nrow(x)))) * 100.0)
 
+    def get_truncated_constraint_set(self, w, x, y, hf,
+                                     max_anomalies_in_constraint_set=1000,
+                                     max_nominals_in_constraint_set=1000):
+        hf_tmp = np.array(hf)
+        yf = y[hf_tmp]
+        ha_pos = np.where(yf == 1)[0]
+        hn_pos = np.where(yf == 0)[0]
+
+        if len(ha_pos) > 0:
+            ha = hf_tmp[ha_pos]
+        else:
+            ha = np.array([], dtype=int)
+
+        if len(hn_pos) > 0:
+            hn = hf_tmp[hn_pos]
+        else:
+            hn = np.array([], dtype=int)
+
+        if len(ha) > max_anomalies_in_constraint_set or \
+                        len(hn) > max_nominals_in_constraint_set:
+            # logger.debug("len(ha) %d, len(hn) %d; random selection subset" % (len(ha), len(hn)))
+            in_set_ha = np.zeros(len(ha), dtype=int)
+            in_set_hn = np.zeros(len(hn), dtype=int)
+            if len(ha) > max_anomalies_in_constraint_set:
+                tmp = sample(range(len(ha)), max_anomalies_in_constraint_set)
+                in_set_ha[tmp] = 1
+            else:
+                in_set_ha[:] = 1
+            if len(hn) > max_nominals_in_constraint_set:
+                tmp = sample(range(len(hn)), max_nominals_in_constraint_set)
+                in_set_hn[tmp] = 1
+            else:
+                in_set_hn[:] = 1
+            hf = append(ha, hn)
+            in_set = append(in_set_ha, in_set_hn)
+            # logger.debug(in_set)
+        else:
+            in_set = np.ones(len(hf), dtype=int)
+
+        return hf, in_set
+
     def if_aad_weight_update(self, w, x, y, hf, w_prior, opts, tau_rel=False, linear=True):
         n = x.shape[0]
         bt = get_budget_topK(n, opts)
 
         qval = self.get_aatp_quantile(x, w, bt.topK)
+
+        hf, in_constr_set = self.get_truncated_constraint_set(w, x, y, hf,
+                                                              max_anomalies_in_constraint_set=opts.max_anomalies_in_constraint_set,
+                                                              max_nominals_in_constraint_set=opts.max_nominals_in_constraint_set)
 
         x_tau = None
         if tau_rel:
@@ -447,24 +492,24 @@ class AadIsolationForest(object):
 
         def if_f(w, x, y):
             if linear:
-                return if_aad_loss_linear(w, x, y, qval, x_tau=x_tau,
+                return if_aad_loss_linear(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
                                           Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
                                           withprior=opts.withprior, w_prior=w_prior,
                                           sigma2=opts.priorsigma2)
             else:
-                return if_aad_loss_exp(w, x, y, qval, x_tau=x_tau,
+                return if_aad_loss_exp(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
                                        Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
                                        withprior=opts.withprior, w_prior=w_prior,
                                        sigma2=opts.priorsigma2)
 
         def if_g(w, x, y):
             if linear:
-                return if_aad_loss_gradient_linear(w, x, y, qval, x_tau=x_tau,
+                return if_aad_loss_gradient_linear(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
                                                    Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
                                                    withprior=opts.withprior, w_prior=w_prior,
                                                    sigma2=opts.priorsigma2)
             else:
-                return if_aad_loss_gradient_exp(w, x, y, qval, x_tau=x_tau,
+                return if_aad_loss_gradient_exp(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
                                                 Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
                                                 withprior=opts.withprior, w_prior=w_prior,
                                                 sigma2=opts.priorsigma2)
@@ -507,6 +552,11 @@ class AadIsolationForest(object):
         hn = []
         xis = []
 
+        w_unifprior = np.ones(m, dtype=float)
+        w_unifprior = w_unifprior / np.sqrt(w_unifprior.dot(w_unifprior))
+        # logger.debug("w_prior:")
+        # logger.debug(w_unifprior)
+
         qstate = Query.get_initial_query_state(opts.qtype, opts=opts, qrank=bt.topK)
 
         metrics.all_weights = np.zeros(shape=(opts.budget, m))
@@ -524,6 +574,19 @@ class AadIsolationForest(object):
             metrics.queried = xis  # xis keeps growing with each feedback iteration
 
             order_anom_idxs = self.order_by_score(x)
+
+            if True:
+                anom_score = self.get_score(x, self.w)
+                # gather AUC metrics
+                metrics.train_aucs[0, i] = fn_auc(cbind(y, -anom_score))
+
+                # gather Precision metrics
+                prec = fn_precision(cbind(y, -anom_score), opts.precision_k)
+                metrics.train_aprs[0, i] = prec[len(opts.precision_k) + 1]
+                train_n_at_top = get_anomalies_at_top(-anom_score, y, opts.precision_k)
+                for k in range(len(opts.precision_k)):
+                    metrics.train_precs[k][0, i] = prec[k]
+                    metrics.train_n_at_top[k][0, i] = train_n_at_top[k]
 
             xi = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
                                        queried_items=xis,
@@ -559,17 +622,17 @@ class AadIsolationForest(object):
                 w_prior = self.w
 
             tau_rel = opts.constrainttype == AAD_CONSTRAINT_TAU_INSTANCE
-            if opts.update_type == AAD_IFOREST:
+            if opts.detector_type == AAD_IFOREST:
                 self.w = self.if_aad_weight_update(self.w, x, y, hf=append(ha, hn),
                                               w_prior=w_prior, opts=opts, tau_rel=tau_rel)
-            elif opts.update_type == ATGP_IFOREST:
+            elif opts.detector_type == ATGP_IFOREST:
                 w_soln = weight_update_iter_grad(ensemble.scores, ensemble.labels,
                                                  hf=append(ha, hn),
                                                  Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
                                                  topK=bt.topK, max_iters=1000)
                 self.w = w_soln.w
             else:
-                raise ValueError("Invalid weight update for IForest: %d" % opts.update_type)
+                raise ValueError("Invalid weight update for IForest: %d" % opts.detector_type)
             # logger.debug("w_new:")
             # logger.debug(w_new)
 
@@ -698,21 +761,26 @@ def sgd(w0, x, y, f, grad, learning_rate=0.01,
     return w_best
 
 
-def get_aad_iforest_args(dataset="", budget=1, reruns=1, log_file=""):
+def get_aad_iforest_args(dataset="", inference_type=AAD_IFOREST,
+                         n_trees=100, n_samples=256,
+                         Ca=100, Cx=0.001,
+                         budget=1, reruns=1, log_file=""):
 
     debug_args = [
         "--dataset=%s" % dataset,
         "--log_file=",
         "--querytype=%d" % QUERY_DETERMINISIC,
-        "--inferencetype=%d" % AAD_IFOREST,
-        # "--constrainttype=%d" % AAD_CONSTRAINT_TAU_INSTANCE,
-        "--constrainttype=%d" % AAD_CONSTRAINT_NONE,
+        "--detector_type=%d" % inference_type,
+        "--constrainttype=%d" % AAD_CONSTRAINT_TAU_INSTANCE,
+        # "--constrainttype=%d" % AAD_CONSTRAINT_NONE,
         "--withprior",
         "--unifprior",
         "--debug",
         "--sigma2=0.1",
-        "--Ca=100",
-        "--Cx=0.001",
+        "--Ca=%f" % Ca,
+        "--Cx=%f" % Cx,
+        "--ifor_n_trees=%d" % n_trees,
+        "--ifor_n_samples=%d" % n_samples,
         "--budget=%d" % budget,
         "--reruns=%d" % reruns,
         "--runtype=%s" % ("multi" if reruns > 1 else "simple")

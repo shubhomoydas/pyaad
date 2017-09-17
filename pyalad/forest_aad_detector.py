@@ -3,7 +3,6 @@ import numpy as np
 from scipy.sparse import lil_matrix
 from scipy import sparse
 from scipy.sparse import csr_matrix, vstack
-from sklearn.ensemble import IsolationForest
 
 import logging
 
@@ -12,16 +11,21 @@ from alad_support import *
 from r_support import matrix, cbind, Timer
 import numbers
 from alad_iforest_loss import *
-from HSTrees import *
+from random_split_trees import *
+from gp_support import *
+
+import cPickle
+import gzip
 
 
 class RegionData(object):
-    def __init__(self, region, path_length, node_id, score, node_samples):
+    def __init__(self, region, path_length, node_id, score, node_samples, log_frac_vol=0.0):
         self.region = region
         self.path_length = path_length
         self.node_id = node_id
         self.score = score
         self.node_samples = node_samples
+        self.log_frac_vol = log_frac_vol
 
 
 def is_in_region(x, region):
@@ -53,14 +57,14 @@ def transform_features(x, all_regions, d):
     return x_new
 
 
-class AadForest(object):
+class AadForest(StreamingSupport):
 
     def __init__(self, n_estimators=10, max_samples=100, max_depth=10,
                  score_type=IFOR_SCORE_TYPE_INV_PATH_LEN,
                  ensemble_score=ENSEMBLE_SCORE_LINEAR,
                  random_state=None,
                  add_leaf_nodes_only=False,
-                 detector_type="ifor", n_jobs=1):
+                 detector_type=AAD_IFOREST, n_jobs=1):
         if random_state is None:
             self.random_state = np.random.RandomState(42)
         else:
@@ -73,23 +77,30 @@ class AadForest(object):
 
         self.score_type = score_type
         if not (self.score_type == IFOR_SCORE_TYPE_INV_PATH_LEN or
-                        self.score_type == IFOR_SCORE_TYPE_INV_PATH_LEN_EXP or
-                        self.score_type == IFOR_SCORE_TYPE_CONST or
-                        self.score_type == IFOR_SCORE_TYPE_NEG_PATH_LEN or
-                        self.score_type == HST_SCORE_TYPE):
+                self.score_type == IFOR_SCORE_TYPE_INV_PATH_LEN_EXP or
+                self.score_type == IFOR_SCORE_TYPE_CONST or
+                self.score_type == IFOR_SCORE_TYPE_NEG_PATH_LEN or
+                self.score_type == HST_SCORE_TYPE or
+                self.score_type == RSF_SCORE_TYPE or
+                self.score_type == RSF_LOG_SCORE_TYPE or
+                self.score_type == ORIG_TREE_SCORE_TYPE):
             raise NotImplementedError("score_type %d not implemented!" % self.score_type)
 
         self.ensemble_score = ensemble_score
         self.add_leaf_nodes_only = add_leaf_nodes_only
 
-        if detector_type == "ifor":
-            self.clf = IsolationForest(n_estimators=n_estimators, max_samples=max_samples,
-                                       n_jobs=n_jobs, random_state=self.random_state)
-        elif detector_type == "hst":
+        if detector_type == AAD_IFOREST:
+            self.clf = IForest(n_estimators=n_estimators, max_samples=max_samples,
+                               n_jobs=n_jobs, random_state=self.random_state)
+        elif detector_type == AAD_HSTREES:
             self.clf = HSTrees(n_estimators=n_estimators, max_depth=max_depth,
                                n_jobs=n_jobs, random_state=self.random_state)
+        elif detector_type == AAD_RSFOREST:
+            self.clf = RSForest(n_estimators=n_estimators, max_depth=max_depth,
+                                n_jobs=n_jobs, random_state=self.random_state)
         else:
-            raise ValueError("Incorrect detector type: %s" % detector_type)
+            raise ValueError("Incorrect detector type: %d. Only tree-based detectors (%d|%d|%d) supported." %
+                             (detector_type, AAD_IFOREST, AAD_HSTREES, AAD_RSFOREST))
 
         # store all regions grouped by tree
         self.regions_in_forest = None
@@ -104,13 +115,17 @@ class AadForest(object):
         self.d = None
 
         # samples for each region
-        self.node_samples = None
+        # self.node_samples = None
 
         # fraction of instances in each region
-        self.frac_insts = None
+        # self.frac_insts = None
 
         # node weights learned through weak-supervision
         self.w = None
+
+        # quick lookup of the uniform weight vector.
+        # IMPORTANT: Treat this as readonly once set in fit()
+        self.w_unif_prior = None
 
     def fit(self, x):
         tm = Timer()
@@ -121,6 +136,10 @@ class AadForest(object):
         # print type(clf.estimators_[0].tree_)
 
         logger.debug(tm.message("created original forest"))
+
+        if self.score_type == ORIG_TREE_SCORE_TYPE:
+            # no need to extract regions in this case
+            return
 
         tm.start()
         self.regions_in_forest = []
@@ -138,8 +157,9 @@ class AadForest(object):
                 region_id += 1  # this will monotonously increase across trees
             self.all_node_regions.append(node_regions)
             # print "%d, #nodes: %d" % (i, len(regions))
-        self.d, self.node_samples, self.frac_insts = self.get_region_scores(self.all_regions)
-
+        self.d, _, _ = self.get_region_scores(self.all_regions)
+        self.w = self.get_uniform_weights()
+        self.w_unif_prior = self.get_uniform_weights()
         logger.debug(tm.message("created forest regions"))
 
     def extract_leaf_regions_from_tree(self, tree, add_leaf_nodes_only=False):
@@ -165,6 +185,9 @@ class AadForest(object):
         features = tree.tree_.feature
         threshold = tree.tree_.threshold
         node_samples = tree.tree_.n_node_samples
+        log_frac_vol = None
+        if isinstance(tree.tree_, ArrTree):
+            log_frac_vol = tree.tree_.acc_log_v
 
         # value = tree.tree_.value
 
@@ -181,7 +204,8 @@ class AadForest(object):
                 # print region
                 regions.append(RegionData(deepcopy(region), path_length, node,
                                           self._average_path_length(node_samples[node]),
-                                          node_samples[node]))
+                                          node_samples[node],
+                                          log_frac_vol=0. if log_frac_vol is None else log_frac_vol[node]))
                 return
             elif left[node] == -1 or right[node] == -1:
                 print "dubious node..."
@@ -191,7 +215,8 @@ class AadForest(object):
             if add_intermediate_nodes and node != 0:
                 regions.append(RegionData(deepcopy(region), path_length, node,
                                           self._average_path_length(node_samples[node]),
-                                          node_samples[node]))
+                                          node_samples[node],
+                                          log_frac_vol=0. if log_frac_vol is None else log_frac_vol[node]))
 
             if left[node] != -1:
                 # make a copy to send down the next node so that
@@ -294,14 +319,8 @@ class AadForest(object):
         else:
             return self.decision_path_full(x, tree)
 
-    def decision_paths(self, x):
-        all_decision_paths = []
-        for tree in self.clf.estimators_:
-            paths = self.decision_path_full(x, tree)
-            all_decision_paths.append(paths)
-        return all_decision_paths
-
     def get_region_scores(self, all_regions):
+        """Larger values mean more anomalous"""
         d = np.zeros(len(all_regions))
         node_samples = np.zeros(len(all_regions))
         frac_insts = np.zeros(len(all_regions))
@@ -320,6 +339,10 @@ class AadForest(object):
                 # d[i] = -region.node_samples * (2. ** region.path_length)
                 # d[i] = -region.node_samples * region.path_length
                 d[i] = -np.log(region.node_samples + 1) + region.path_length
+            elif self.score_type == RSF_SCORE_TYPE:
+                d[i] = -region.node_samples * np.exp(region.log_frac_vol)
+            elif self.score_type == RSF_LOG_SCORE_TYPE:
+                d[i] = -np.log(region.node_samples + 1) - region.log_frac_vol
             else:
                 # if self.score_type == IFOR_SCORE_TYPE_NORM:
                 raise NotImplementedError("score_type %d not implemented!" % self.score_type)
@@ -331,12 +354,17 @@ class AadForest(object):
                 #        ) / (self.n_estimators * self._average_path_length(self.clf._max_samples))
         return d, node_samples, frac_insts
 
-    def get_score(self, x, w):
+    def get_score(self, x, w=None):
+        """Higher score means more anomalous"""
         #if self.score_type == IFOR_SCORE_TYPE_INV_PATH_LEN or \
         #                self.score_type == IFOR_SCORE_TYPE_INV_PATH_LEN_EXP or \
         #                self.score_type == IFOR_SCORE_TYPE_CONST or \
         #                self.score_type == IFOR_SCORE_TYPE_NEG_PATH_LEN or \
         #                self.score_type == HST_SCORE_TYPE:
+        if w is None:
+            w = self.w
+        if w is None:
+            raise ValueError("weights not initialized")
         if self.ensemble_score == ENSEMBLE_SCORE_LINEAR:
             return x.dot(w)
         elif self.ensemble_score == ENSEMBLE_SCORE_EXPONENTIAL:
@@ -345,7 +373,45 @@ class AadForest(object):
             raise NotImplementedError("score_type %d not implemented!" % self.score_type)
 
     def decision_function(self, x):
+        """Returns the decision function for the original underlying classifier"""
         return self.clf.decision_function(x)
+
+    def supports_streaming(self):
+        return self.clf.supports_streaming()
+
+    def add_samples(self, X, current=False):
+        """Incrementally updates the stream buffer node counts"""
+        if not self.supports_streaming():
+            raise ValueError("Detector does not support incremental update")
+        if current:
+            raise ValueError("Only current=False supported")
+        self.clf.add_samples(X, current=current)
+
+    def update_region_scores(self):
+        for i, estimator in enumerate(self.clf.estimators_):
+            tree = estimator.tree_
+            node_regions = self.all_node_regions[i]
+            for node_id in node_regions:
+                region_id = node_regions[node_id]
+                self.all_regions[region_id].node_samples = tree.n_node_samples[node_id]
+        self.d, _, _ = self.get_region_scores(self.all_regions)
+
+    def update_model_from_stream_buffer(self):
+        self.clf.update_model_from_stream_buffer()
+        #for i, estimator in enumerate(self.clf.estimators_):
+        #    estimator.tree.tree_.update_model_from_stream_buffer()
+        self.update_region_scores()
+
+    def get_region_score_for_instance_transform(self, region_id, norm_factor=1.0):
+        if (self.score_type == IFOR_SCORE_TYPE_CONST or
+                    self.score_type == HST_SCORE_TYPE or
+                    self.score_type == RSF_SCORE_TYPE or
+                    self.score_type == RSF_LOG_SCORE_TYPE):
+            return self.d[region_id]
+        elif self.score_type == ORIG_TREE_SCORE_TYPE:
+            raise ValueError("Score type %d not supported for method get_region_score_for_instance_transform()" % self.score_type)
+        else:
+            return self.d[region_id] / norm_factor
 
     def transform_to_region_features(self, x, dense=True):
         """ Transforms matrix x to features from isolation forest
@@ -364,7 +430,7 @@ class AadForest(object):
         if dense:
             return self.transform_to_region_features_dense(x)
         else:
-            return self.transform_to_region_features_sparse_batch(x)
+            return self.transform_to_region_features_sparse(x)
 
     def transform_to_region_features_dense(self, x):
         # return transform_features(x, self.all_regions, self.d)
@@ -373,18 +439,6 @@ class AadForest(object):
         return x_new
 
     def transform_to_region_features_sparse(self, x):
-        # return transform_features(x, self.all_regions, self.d)
-        x_new = lil_matrix((x.shape[0], len(self.d)), dtype=float)
-        self._transform_to_region_features_with_lookup(x, x_new)
-        return x_new.tocsr()
-
-    def get_region_score_for_instance_transform(self, region_id, norm_factor=1.0):
-        if self.score_type == IFOR_SCORE_TYPE_CONST or self.score_type == HST_SCORE_TYPE:
-            return self.d[region_id]
-        else:
-            return self.d[region_id] / norm_factor
-
-    def transform_to_region_features_sparse_batch(self, x):
         """ Transforms from original feature space to IF node space
         
         The conversion to sparse vectors seems to take a lot of intermediate
@@ -427,15 +481,15 @@ class AadForest(object):
 
     def _transform_to_region_features_with_lookup(self, x, x_new):
         """ Transforms from original feature space to IF node space
-        
+
         NOTE: This has been deprecated. Will be removed in future.
-        
+
         Performs the conversion tree-by-tree. Even with batching by trees,
         this requires a lot of intermediate memory. Hence we do not use this method...
-        
-        :param x: 
-        :param x_new: 
-        :return: 
+
+        :param x:
+        :param x_new:
+        :return:
         """
         starttime = timer()
         n = x_new.shape[0]
@@ -506,7 +560,7 @@ class AadForest(object):
 
         return hf, in_set
 
-    def if_aad_weight_update(self, w, x, y, hf, w_prior, opts, tau_rel=False, linear=True):
+    def forest_aad_weight_update(self, w, x, y, hf, w_prior, opts, tau_rel=False, linear=True):
         n = x.shape[0]
         bt = get_budget_topK(n, opts)
 
@@ -570,13 +624,56 @@ class AadForest(object):
         return w_unif
 
     def order_by_score(self, x, w=None):
-        if w is None:
-            anom_score = self.get_score(x, self.w)
-        else:
-            anom_score = self.get_score(x, w)
-        return order(anom_score, decreasing=True)
+        anom_score = self.get_score(x, w)
+        return order(anom_score, decreasing=True), anom_score
 
-    def aad_ensemble(self, ensemble, opts):
+    def update_weights(self, x, y, ha, hn, opts, w=None):
+        """Learns new weights for one feedback iteration
+
+        Args:
+            x: np.ndarray
+                input data
+            y: np.array(dtype=int)
+                labels. Only the values at indexes in ha and hn are relevant. Rest may be np.nan.
+            ha: np.array(dtype=int)
+                indexes of labeled anomalies in x
+            hn: indexes of labeled nominals in x
+            opts: Opts
+            w: np.array(dtype=float)
+                current parameter values
+        """
+        n, m = x.shape
+        bt = get_budget_topK(n, opts)
+
+        if w is None:
+            w = self.w
+
+        if opts.unifprior:
+            w_prior = self.w_unif_prior
+        else:
+            w_prior = w
+
+        tau_rel = opts.constrainttype == AAD_CONSTRAINT_TAU_INSTANCE
+        if (opts.detector_type == AAD_IFOREST or
+                    opts.detector_type == AAD_HSTREES or
+                    opts.detector_type == AAD_RSFOREST):
+            w_new = self.forest_aad_weight_update(w, x, y, hf=append(ha, hn),
+                                                  w_prior=w_prior, opts=opts, tau_rel=tau_rel,
+                                                  linear=(self.ensemble_score == ENSEMBLE_SCORE_LINEAR))
+        elif opts.detector_type == ATGP_IFOREST:
+            w_soln = weight_update_iter_grad(x, y,
+                                             hf=append(ha, hn),
+                                             Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
+                                             topK=bt.topK, max_iters=1000)
+            w_new = w_soln.w
+        else:
+            raise ValueError("Invalid weight update for IForest: %d" % opts.detector_type)
+            # logger.debug("w_new:")
+            # logger.debug(w_new)
+
+        self.w = w_new
+
+    def aad_learn_ensemble_weights_with_budget(self, ensemble, opts):
 
         if opts.budget == 0:
             return None
@@ -592,12 +689,8 @@ class AadForest(object):
         hn = []
         xis = []
 
-        w_unifprior = np.ones(m, dtype=float)
-        w_unifprior = w_unifprior / np.sqrt(w_unifprior.dot(w_unifprior))
-        # logger.debug("w_prior:")
-        # logger.debug(w_unifprior)
-
-        qstate = Query.get_initial_query_state(opts.qtype, opts=opts, qrank=bt.topK)
+        qstate = Query.get_initial_query_state(opts.qtype, opts=opts, qrank=bt.topK,
+                                               a=1., b=1., budget=bt.budget)
 
         metrics.all_weights = np.zeros(shape=(opts.budget, m))
 
@@ -613,10 +706,9 @@ class AadForest(object):
             metrics.all_weights[i, :] = self.w
             metrics.queried = xis  # xis keeps growing with each feedback iteration
 
-            order_anom_idxs = self.order_by_score(x)
+            order_anom_idxs, anom_score = self.order_by_score(x, self.w)
 
-            if True:
-                anom_score = self.get_score(x, self.w)
+            if False and y is not None and metrics is not None:
                 # gather AUC metrics
                 metrics.train_aucs[0, i] = fn_auc(cbind(y, -anom_score))
 
@@ -630,11 +722,12 @@ class AadForest(object):
 
             xi = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
                                        queried_items=xis,
-                                       x=x, lbls=y,
+                                       x=x, lbls=y, y=anom_score,
                                        w=self.w, hf=append(ha, hn),
                                        remaining_budget=opts.budget - i)
             # logger.debug("xi: %d" % (xi,))
             xis.append(xi)
+            metrics.test_indexes.append(qstate.test_indexes)
 
             if opts.single_inst_feedback:
                 # Forget the previous feedback instances and
@@ -651,31 +744,13 @@ class AadForest(object):
 
             if opts.batch:
                 # Use the original (uniform) weights as prior
-                self.w = w_unif_prior
-                hf = np.arange(i)
+                # This is an experimental option ...
+                w = self.w_unif_prior
+                hf = order_anom_idxs[0:i]
                 ha = hf[np.where(y[hf] == 1)[0]]
                 hn = hf[np.where(y[hf] == 0)[0]]
 
-            if opts.unifprior:
-                w_prior = w_unif_prior
-            else:
-                w_prior = self.w
-
-            tau_rel = opts.constrainttype == AAD_CONSTRAINT_TAU_INSTANCE
-            if opts.update_type == AAD_IFOREST or opts.update_type == AAD_HSTREES:
-                self.w = self.if_aad_weight_update(self.w, x, y, hf=append(ha, hn),
-                                                   w_prior=w_prior, opts=opts, tau_rel=tau_rel,
-                                                   linear=(self.ensemble_score == ENSEMBLE_SCORE_LINEAR))
-            elif opts.update_type == ATGP_IFOREST:
-                w_soln = weight_update_iter_grad(ensemble.scores, ensemble.labels,
-                                                 hf=append(ha, hn),
-                                                 Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
-                                                 topK=bt.topK, max_iters=1000)
-                self.w = w_soln.w
-            else:
-                raise ValueError("Invalid weight update for IForest: %d" % opts.update_type)
-            # logger.debug("w_new:")
-            # logger.debug(w_new)
+            self.update_weights(x, y, ha=ha, hn=hn, opts=opts, w=self.w)
 
             if np.mod(i, 1) == 0:
                 endtime_iter = timer()
@@ -813,20 +888,33 @@ def sgd(w0, x, y, f, grad, learning_rate=0.01,
     return w_best
 
 
-def get_forest_aad_args(dataset="", inference_type=AAD_IFOREST,
+def save_aad_model(filepath, model):
+    f = gzip.open(filepath, 'wb')
+    cPickle.dump(model, f, protocol=cPickle.HIGHEST_PROTOCOL)
+    f.close()
+
+def load_aad_model(filepath):
+    f = gzip.open(filepath, 'rb')
+    model = cPickle.load(f)
+    f.close()
+    return model
+
+
+def get_forest_aad_args(dataset="", detector_type=AAD_IFOREST,
                         n_trees=100, n_samples=256,
                         forest_add_leaf_nodes_only=False,
                         forest_score_type=IFOR_SCORE_TYPE_CONST,
                         forest_max_depth=15,
                         ensemble_score=ENSEMBLE_SCORE_LINEAR,
                         Ca=100, Cx=0.001, sigma2=0.5,
-                        budget=1, reruns=1, n_jobs=1, log_file=""):
+                        budget=1, reruns=1, n_jobs=1, log_file="", plot2D=False,
+                        streaming=False, stream_window=512, allow_stream_update=True):
 
     debug_args = [
         "--dataset=%s" % dataset,
         "--log_file=",
         "--querytype=%d" % QUERY_DETERMINISIC,
-        "--inferencetype=%d" % inference_type,
+        "--detector_type=%d" % detector_type,
         "--constrainttype=%d" % AAD_CONSTRAINT_TAU_INSTANCE,
         # "--constrainttype=%d" % AAD_CONSTRAINT_NONE,
         "--withprior",
@@ -845,10 +933,17 @@ def get_forest_aad_args(dataset="", inference_type=AAD_IFOREST,
         "--budget=%d" % budget,
         "--reruns=%d" % reruns,
         "--n_jobs=%d" % n_jobs,
-        "--runtype=%s" % ("multi" if reruns > 1 else "simple")
+        "--runtype=%s" % ("multi" if reruns > 1 else "simple"),
+        "--stream_window=%d" % (stream_window)
     ]
     if forest_add_leaf_nodes_only:
         debug_args.append("--forest_add_leaf_nodes_only")
+    if plot2D:
+        debug_args.append("--plot2D")
+    if streaming:
+        debug_args.append("--streaming")
+    if allow_stream_update:
+        debug_args.append("--allow_stream_update")
 
     # the reason to use 'debug=True' below is to have the arguments
     # read from the debug_args list and not commandline.

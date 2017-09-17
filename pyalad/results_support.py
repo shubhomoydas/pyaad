@@ -13,10 +13,17 @@ def write_sequential_results_to_csv(results, opts):
     baseline_file = os.path.join(opts.resultsdir, "%s-baseline.csv" % (prefix,))
     queried_idxs_file = os.path.join(opts.resultsdir, "%s-queried.csv" % (prefix,))
     queried_idxs_baseline_file = os.path.join(opts.resultsdir, "%s-queried-baseline.csv" % (prefix,))
-    np.savetxt(num_seen_file, results.num_seen, fmt='%d', delimiter=',')
-    np.savetxt(baseline_file, results.num_seen_baseline, fmt='%d', delimiter=',')
-    np.savetxt(queried_idxs_file, results.true_queried_indexes, fmt='%d', delimiter=',')
-    np.savetxt(queried_idxs_baseline_file, results.true_queried_indexes_baseline, fmt='%d', delimiter=',')
+    aucs_file = os.path.join(opts.resultsdir, "%s-aucs.csv" % (prefix,))
+    if results.num_seen is not None:
+        np.savetxt(num_seen_file, results.num_seen, fmt='%d', delimiter=',')
+    if results.num_seen_baseline is not None:
+        np.savetxt(baseline_file, results.num_seen_baseline, fmt='%d', delimiter=',')
+    if results.true_queried_indexes is not None:
+        np.savetxt(queried_idxs_file, results.true_queried_indexes, fmt='%d', delimiter=',')
+    if results.true_queried_indexes_baseline is not None:
+        np.savetxt(queried_idxs_baseline_file, results.true_queried_indexes_baseline, fmt='%d', delimiter=',')
+    if results.aucs is not None:
+        np.savetxt(aucs_file, results.aucs, fmt='%f', delimiter=',')
 
 
 def summarize_alad_to_csv(samples=None, ensembles=None, metrics=None, opts=None):

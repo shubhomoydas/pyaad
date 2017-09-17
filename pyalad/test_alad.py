@@ -25,7 +25,7 @@ def alad_dataset(dataset):
 
     summarize_alad_to_csv(samples=samples, ensembles=ensembles, metrics=metrics, opts=opts)
 
-    print "completed alad %s for %s" % (opts.update_type_str(), opts.dataset,)
+    print "completed alad %s for %s" % (opts.detector_type_str(), opts.dataset,)
 
 
 def alad_multiple_datasets():
@@ -45,14 +45,14 @@ def test_alad_single():
     opts.withprior = True
     opts.unifprior = True
 
-    opts.filedir = "datasets/anomaly/%s/fullsamples" % (opts.dataset,)
-    opts.cachedir = "datasets/anomaly/%s/fullmodel/pyalad" % (opts.dataset,)
-    # opts.resultsdir = "datasets/anomaly/%s/fullresults/pyalad" % (opts.dataset,)
+    opts.filedir = "/Users/moy/work/datasets/anomaly/%s/fullsamples" % (opts.dataset,)
+    opts.cachedir = "/Users/moy/work/datasets/anomaly/%s/fullmodel/pyalad" % (opts.dataset,)
+    # opts.resultsdir = "/Users/moy/work/datasets/anomaly/%s/fullresults/pyalad" % (opts.dataset,)
     opts.header = True
     opts.mink = 100
 
-    # opts.datafile = "datasets/anomaly/%s/fullsamples/%s_1" % (opts.dataset, opts.dataset)
-    # opts.scoresfile = "datasets/anomaly/%s/fullsamples" % (opts.dataset,)
+    # opts.datafile = "/Users/moy/work/datasets/anomaly/%s/fullsamples/%s_1" % (opts.dataset, opts.dataset)
+    # opts.scoresfile = "/Users/moy/work/datasets/anomaly/%s/fullsamples" % (opts.dataset,)
 
     opts.ensembletype = "loda"
     opts.runtype = "multi"
@@ -105,7 +105,7 @@ if __name__ == '__main__':
         opts = Opts(args)
         alad_results = alad(opts)
         write_sequential_results_to_csv(alad_results, opts)
-        print "completed alad %s for %s" % (opts.update_type_str(), args.dataset,)
+        print "completed alad %s for %s" % (opts.detector_type_str(), args.dataset,)
     elif args.op == "single":
         test_alad_single()
     else:

@@ -53,14 +53,14 @@ def iforest_unit_tests_battery(X_train, labels, mdl, metrics, opts,
     dash_xy = (-4.0, -2.0)  # bottom-left (x,y) coordinates
     dash_wh = (0.4, 8)  # width, height
 
-    output_iforest_original = True
+    output_iforest_original = False
     output_transformed_to_file = False
     test_loss_grad = False
     plot_dataset = data_2D and True
     plot_rectangular_regions = plot_dataset and False
     plot_iforest_contours = data_2D and False
-    plot_baseline = data_2D and True
-    plot_aad = metrics is not None and data_2D and True
+    plot_baseline = data_2D and False
+    plot_aad = metrics is not None and data_2D and False
 
     pdfpath_baseline = "%s/if_baseline.pdf" % outputdir
     pdfpath_orig_if_contours = "%s/if_contours.pdf" % outputdir
@@ -266,7 +266,9 @@ def plot_dataset_2D(x, y, if_model, plot_regions, regcols, pdf_folder):
     dp = DataPlotter(pdfpath=pdfpath_dataset, rows=1, cols=1)
     pl = dp.get_next_plot()
 
-    dp.plot_points(x, pl, labels=y, lbl_color_map={0: "grey", 1: "red"})
+    # dp.plot_points(x, pl, labels=y, lbl_color_map={0: "grey", 1: "red"})
+    dp.plot_points(x[y==0, :], pl, labels=y[y==0], defaultcol="grey")
+    dp.plot_points(x[y==1, :], pl, labels=y[y==1], defaultcol="red", s=26, linewidths=1.5)
 
     if plot_regions:
         # plot the isolation forest tree regions

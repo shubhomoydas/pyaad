@@ -19,6 +19,7 @@ class MetricsStructure(object):
         self.test_n_at_top = test_n_at_top
         self.all_weights = all_weights
         self.queried = queried
+        self.test_indexes = []
 
 
 def get_alad_metrics_structure(budget, opts):
@@ -81,12 +82,14 @@ def consolidate_alad_metrics(fids, runidxs, opts):
 
 
 class SequentialResults(object):
-    def __init__(self, num_seen, num_seen_baseline,
-                 true_queried_indexes=None, true_queried_indexes_baseline=None):
+    def __init__(self, num_seen=None, num_seen_baseline=None,
+                 true_queried_indexes=None, true_queried_indexes_baseline=None,
+                 aucs=None):
         self.num_seen = num_seen
         self.num_seen_baseline = num_seen_baseline
         self.true_queried_indexes = true_queried_indexes
         self.true_queried_indexes_baseline = true_queried_indexes_baseline
+        self.aucs = aucs
 
 
 def summarize_ensemble_num_seen(ensemble, metrics, fid=0, runidx=0):
@@ -299,15 +302,15 @@ def alad_ensemble(ensemble, opts):
             qval_ranges.append(get_score_ranges(ensemble.scores, detector_wts))
 
         topK = bt.topK
-        if (opts.update_type == AAD_UPD_TYPE or
-                    opts.update_type == AAD_SLACK_CONSTR_UPD_TYPE):
+        if (opts.detector_type == AAD_UPD_TYPE or
+                    opts.detector_type == AAD_SLACK_CONSTR_UPD_TYPE):
             if i == 0 and opts.random_instance_at_start:
                 topK = np.random.random_integers(1, ensemble.scores.shape[0], 1)[0]
                 # logger.debug("random inst-index: %d" % topK)
             qval = get_aatp_quantile(x=ensemble.scores, w=detector_wts, topK=topK)
             qvals.append(qval)
 
-        if opts.update_type == SIMPLE_UPD_TYPE:
+        if opts.detector_type == SIMPLE_UPD_TYPE:
             # The simple online weight update
             # enforces ||w||=1 constraint
             detector_wts = weight_update_online_simple(ensemble.scores, ensemble.labels, hf=append(ha, hn),
@@ -316,10 +319,10 @@ def alad_ensemble(ensemble, opts):
                                                        sigma2=opts.priorsigma2,
                                                        relativeto=opts.relativeto,
                                                        tau_anomaly=opts.tau, tau_nominal=opts.tau_nominal)
-        elif opts.update_type == SIMPLE_UPD_TYPE_R_OPTIM:
-            raise NotImplementedError("Update type %d not implemented!" % (opts.update_type,))
-        elif (opts.update_type == AAD_UPD_TYPE or
-                opts.update_type == AAD_SLACK_CONSTR_UPD_TYPE):
+        elif opts.detector_type == SIMPLE_UPD_TYPE_R_OPTIM:
+            raise NotImplementedError("Update type %d not implemented!" % (opts.detector_type,))
+        elif (opts.detector_type == AAD_UPD_TYPE or
+                opts.detector_type == AAD_SLACK_CONSTR_UPD_TYPE):
 
             # AATP weight update
             w_soln = weight_update_aatp_slack_pairwise_constrained(
@@ -346,15 +349,16 @@ def alad_ensemble(ensemble, opts):
             else:
                 logger.warning("Warning: Error in optimization for iter %d" % (i,))
                 # retain the previous weights
-        elif opts.update_type == AAD_ITERATIVE_GRAD_UPD_TYPE:
+        elif opts.detector_type == AAD_ITERATIVE_GRAD_UPD_TYPE:
             # enforces \sum{w_i}=1 constraint
+            # source('/Users/moy/work/git/loda/R/alad_aatp_iterative_grad.R')
             w_soln = weight_update_iter_grad(ensemble.scores, ensemble.labels,
                                              hf=append(ha, hn),
                                              Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx, topK=topK, max_iters=1000)
             #logger.debug("Iter: %d; old loss: %f; loss: %f; del_loss: %f" %
             #             (w_soln.tries, w_soln.loss_old, w_soln.loss, abs(w_soln.loss - w_soln.loss_old)))
             detector_wts = w_soln.w
-        elif opts.update_type == SIMPLE_PAIRWISE:
+        elif opts.detector_type == SIMPLE_PAIRWISE:
             w_soln = weight_update_simple_pairwise(ensemble.scores, ensemble.labels,
                                                    hf=append(ha, hn),
                                                    w=detector_wts, w_prior=w_prior,
@@ -380,13 +384,13 @@ def alad_ensemble(ensemble, opts):
     return metrics
 
 
-def run_alad_simple(samples, labels, opts, rnd_seed=0):
+def run_alad_simple(samples, labels, opts, scores=None, rnd_seed=0):
 
     ensemblemanager = EnsembleManager.get_ensemble_manager(opts)
 
     np.random.seed(rnd_seed)
 
-    ensemble = ensemblemanager.load_data(samples, labels, opts)
+    ensemble = ensemblemanager.load_data(samples, labels, opts, scores=scores)
 
     starttime_feedback = timer()
 

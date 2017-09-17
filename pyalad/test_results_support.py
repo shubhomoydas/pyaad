@@ -20,7 +20,7 @@ def summarize_alad_results():
 
     summarize_alad_to_csv(opts=opts)
 
-    print "completed result summary %s for %s" % (opts.update_type_str(), opts.dataset,)
+    print "completed result summary %s for %s" % (opts.detector_type_str(), opts.dataset,)
 
 
 def test_summarize_alad_results():
@@ -42,7 +42,7 @@ def test_summarize_alad_results():
 
         summarize_alad_to_csv(opts=opts)
 
-        print "completed result summary %s for %s" % (opts.update_type_str(), opts.dataset,)
+        print "completed result summary %s for %s" % (opts.detector_type_str(), opts.dataset,)
 
 if __name__ == '__main__':
     summarize_alad_results()
