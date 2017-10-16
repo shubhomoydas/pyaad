@@ -33,7 +33,7 @@ example (with Isolation Forest, non-streaming):
 
 example (with HSTrees streaming):
 
-    bash ./tree_aad.sh toy2 35 1 0.03 7 1 0 1 256
+    bash ./tree_aad.sh toy2 35 1 0.03 11 1 0 1 256
 
 
 Reference(s):
