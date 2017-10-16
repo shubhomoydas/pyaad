@@ -13,7 +13,7 @@
 #
 # Streaming Mode Isolation Forest
 # -------------------------------
-# bash ./tree_aad.sh toy2 35 1 0.03 7 1 0 1 512
+# bash ./tree_aad.sh toy2 35 1 0.03 11 1 0 1 512
 
 ARGC=$#
 if [[ "$ARGC" -gt "0" ]]; then
