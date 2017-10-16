@@ -84,11 +84,14 @@ def consolidate_alad_metrics(fids, runidxs, opts):
 class SequentialResults(object):
     def __init__(self, num_seen=None, num_seen_baseline=None,
                  true_queried_indexes=None, true_queried_indexes_baseline=None,
+                 stream_window=None, stream_window_baseline=None,
                  aucs=None):
         self.num_seen = num_seen
         self.num_seen_baseline = num_seen_baseline
         self.true_queried_indexes = true_queried_indexes
         self.true_queried_indexes_baseline = true_queried_indexes_baseline
+        self.stream_window = stream_window
+        self.stream_window_baseline = stream_window_baseline
         self.aucs = aucs
 
 

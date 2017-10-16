@@ -10,9 +10,10 @@ from app_globals import *  # get_command_args, Opts, configure_logger
 from alad_support import *
 from r_support import matrix, cbind, Timer
 import numbers
-from alad_iforest_loss import *
+from forest_aad_loss import *
 from random_split_trees import *
 from gp_support import *
+from optimization import *
 
 import cPickle
 import gzip
@@ -581,31 +582,51 @@ class AadForest(StreamingSupport):
 
         def if_f(w, x, y):
             if linear:
-                return if_aad_loss_linear(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
-                                          Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
-                                          withprior=opts.withprior, w_prior=w_prior,
-                                          sigma2=opts.priorsigma2)
+                return forest_aad_loss_linear(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
+                                              Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
+                                              withprior=opts.withprior, w_prior=w_prior,
+                                              sigma2=opts.priorsigma2)
             else:
-                return if_aad_loss_exp(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
-                                       Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
-                                       withprior=opts.withprior, w_prior=w_prior,
-                                       sigma2=opts.priorsigma2)
+                return forest_aad_loss_exp(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
+                                           Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
+                                           withprior=opts.withprior, w_prior=w_prior,
+                                           sigma2=opts.priorsigma2)
 
         def if_g(w, x, y):
             if linear:
-                return if_aad_loss_gradient_linear(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
-                                                   Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
-                                                   withprior=opts.withprior, w_prior=w_prior,
-                                                   sigma2=opts.priorsigma2)
+                return forest_aad_loss_gradient_linear(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
+                                                       Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
+                                                       withprior=opts.withprior, w_prior=w_prior,
+                                                       sigma2=opts.priorsigma2)
             else:
-                return if_aad_loss_gradient_exp(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
-                                                Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
-                                                withprior=opts.withprior, w_prior=w_prior,
-                                                sigma2=opts.priorsigma2)
-
-        w_new = sgd(w, x[hf, :], y[hf], if_f, if_g,
-                    learning_rate=0.001, max_epochs=1000, eps=1e-5,
-                    shuffle=True, rng=self.random_state)
+                return forest_aad_loss_gradient_exp(w, x, y, qval, in_constr_set=in_constr_set, x_tau=x_tau,
+                                                    Ca=opts.Ca, Cn=opts.Cn, Cx=opts.Cx,
+                                                    withprior=opts.withprior, w_prior=w_prior,
+                                                    sigma2=opts.priorsigma2)
+        if False:
+            w_new = sgd(w, x[hf, :], y[hf], if_f, if_g,
+                        learning_rate=0.001, max_epochs=1000, eps=1e-5,
+                        shuffle=True, rng=self.random_state)
+        elif False:
+            w_new = sgdMomentum(w, x[hf, :], y[hf], if_f, if_g,
+                                learning_rate=0.001, max_epochs=1000,
+                                shuffle=True, rng=self.random_state)
+        elif True:
+            # sgdRMSProp seems to run fastest and achieve performance close to best
+            # NOTE: this was an observation on ANNThyroid_1v3 and toy2 datasets
+            w_new = sgdRMSProp(w, x[hf, :], y[hf], if_f, if_g,
+                               learning_rate=0.001, max_epochs=1000,
+                               shuffle=True, rng=self.random_state)
+        elif False:
+            # sgdAdam seems to get best performance while a little slower than sgdRMSProp
+            # NOTE: this was an observation on ANNThyroid_1v3 and toy2 datasets
+            w_new = sgdAdam(w, x[hf, :], y[hf], if_f, if_g,
+                            learning_rate=0.001, max_epochs=1000,
+                            shuffle=True, rng=self.random_state)
+        else:
+            w_new = sgdRMSPropNestorov(w, x[hf, :], y[hf], if_f, if_g,
+                                       learning_rate=0.001, max_epochs=1000,
+                                       shuffle=True, rng=self.random_state)
         w_len = w_new.dot(w_new)
         # logger.debug("w_len: %f" % w_len)
         if np.isnan(w_len):
@@ -822,70 +843,6 @@ def write_sparsemat_to_file(fname, X, fmt='%.18e', delimiter=','):
         f.close()
     else:
         raise ValueError("Invalid matrix type")
-
-
-def get_num_batches(n, batch_size):
-    return int(round((n + batch_size * 0.5) / batch_size))
-
-
-def get_sgd_batch(x, y, i, batch_size, shuffled_idxs=None):
-    s = i * batch_size
-    e = min(x.shape[0], (i + 1) * batch_size)
-    if shuffled_idxs is None:
-        idxs = np.arange(s, e)
-    else:
-        idxs = shuffled_idxs[np.arange(s, e)]
-    return matrix(x[idxs, :], ncol=x.shape[1]), y[idxs]
-
-
-def sgd(w0, x, y, f, grad, learning_rate=0.01,
-        batch_size=100, max_epochs=100, eps=1e-6, shuffle=False, rng=None):
-    n = x.shape[0]
-    n_batches = get_num_batches(n, batch_size)
-    w = np.copy(w0)
-    epoch_losses = np.zeros(max_epochs, dtype=float)
-    epoch = 0
-    w_best = np.copy(w0)
-    loss_best = np.inf
-    if shuffle:
-        shuffled_idxs = np.arange(n)
-        if rng is None:
-            np.random.shuffle(shuffled_idxs)
-        else:
-            rng.shuffle(shuffled_idxs)
-    else:
-        shuffled_idxs = None
-    while epoch < max_epochs:
-        losses = np.zeros(n_batches, dtype=float)
-        for i in range(n_batches):
-            xi, yi = get_sgd_batch(x, y, i, batch_size, shuffled_idxs=shuffled_idxs)
-            g = grad(w, xi, yi)
-            w -= learning_rate * g
-            losses[i] = f(w, xi, yi)
-            if False:
-                g_norm = g.dot(g)
-                if np.isnan(g_norm) or np.isinf(g_norm):
-                    logger.debug("|grad|=%f, i=%d/%d, epoch:%d" % (g.dot(g), i+1, n_batches, epoch))
-                    logger.debug("|w0|=%f" % w0.dot(w0))
-                    raise ArithmeticError("grad is nan/inf in sgd")
-        loss = np.mean(losses)
-        if np.isnan(loss):
-            logger.debug("loss is nan")
-            logger.debug("|w|=%f" % w.dot(w))
-            raise ArithmeticError("loss is nan in sgd")
-        epoch_losses[epoch] = loss
-        if loss < loss_best:
-            # pocket algorithm
-            np.copyto(w_best, w)
-            loss_best = loss
-        if loss < eps:
-            break
-        epoch += 1
-    # print epoch
-    # logger.debug("net losses:")
-    # logger.debug(epoch_losses[0:epoch])
-    # logger.debug("best loss: %f" % loss_best)
-    return w_best
 
 
 def save_aad_model(filepath, model):

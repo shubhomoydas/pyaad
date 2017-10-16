@@ -15,21 +15,25 @@ matplotlib
 
 This codebase has four different algorithms:
   - The LODA based AAD
-  - The Isolation Forest based AAD
-  - HS Trees based AAD (with streaming support **still needs better integration**)
-  - RS Forest based AAD (with streaming support **still needs better integration**)
+  - The Isolation Forest based AAD (**does not support streaming incremental update**)
+  - HS Trees based AAD (with streaming support)
+  - RS Forest based AAD (with streaming support)
 
 To run the Isolation Forest / HS-Trees / RS-Forest based algorithms, the command has the following format:
 
-    bash ./tree_aad.sh <dataset> <budget> <reruns> <tau> <inference_type> <query_type> <streaming[0|1]>
+    bash ./tree_aad.sh <dataset> <budget> <reruns> <tau> <detector_type> <query_type> <query_confident[0|1]> <streaming[0|1]> <streaming_window>
 
-    for Isolation Forest set <inference_type>=7; 
-    for HSTrees, set <inference_type>=11;
-    for RSForest, set <inference_type>=12;
+    for Isolation Forest, set <detector_type>=7; 
+    for HSTrees, set <detector_type>=11;
+    for RSForest, set <detector_type>=12;
 
 example (with Isolation Forest, non-streaming):
 
-    bash ./tree_aad.sh toy2 35 1 0.03 7 1 0
+    bash ./tree_aad.sh toy2 35 1 0.03 7 1 0 0 512
+
+example (with HSTrees streaming):
+
+    bash ./tree_aad.sh toy2 35 1 0.03 7 1 0 1 256
 
 
 Reference(s):

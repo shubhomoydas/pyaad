@@ -294,10 +294,16 @@ class Timer(object):
     def end(self):
         self.end_time = timer()
 
+    def elapsed(self):
+        etime = self.end_time
+        if etime is None:
+            etime = timer()
+        return difftime(etime, self.start_time, units="secs")
+
     def message(self, msg):
         if self.end_time is None:
             self.end_time = timer()
-        tdiff = difftime(self.end_time, self.start_time, units="secs")
+        tdiff = self.elapsed()
         return "%s %f sec(s)" % (msg, tdiff)
 
 

@@ -1,53 +1,67 @@
 #!/bin/bash
 
 # To run:
-# bash ./tree_aad.sh <dataset> <budget> <reruns> <tau> <inference_type> <query_type> <streaming[0|1]>
+# bash ./tree_aad.sh <dataset> <budget> <reruns> <tau> <detector_type> <query_type> <query_confident[0|1]> <streaming[0|1]> <streaming_window>
 #
-# detector_type(s):
-#   1-Simple, 
-#   2-Simple_Optim(same as simple), 
-#   3-AATP with pairwise constraints,
-#   6-ATGP (Iterative gradient)
-#
+# =========
 # Examples:
-# bash ./tree_aad.sh toy2 35 1 0.03 7 1 0
-# bash ./tree_aad.sh toy2 35 1 0.03 11 1 1
-# bash ./tree_aad.sh toy2 35 1 0.03 12 1 1
+# ---------
+#
+# Batch Mode Isolation Forest
+# ---------------------------
+# bash ./tree_aad.sh toy2 35 1 0.03 7 1 0 0 512
+#
+# Streaming Mode Isolation Forest
+# -------------------------------
+# bash ./tree_aad.sh toy2 35 1 0.03 7 1 0 1 512
 
-DATASET=$1
-BUDGET=$2
-RERUNS=$3
-TAU=$4
+ARGC=$#
+if [[ "$ARGC" -gt "0" ]]; then
+    DATASET=$1
+    BUDGET=$2
+    RERUNS=$3
+    TAU=$4
 
-# ==============================
-# Supported DETECTOR_TYPE:
-# ------------------------------
-#  7 - AAD_IFOREST
-# 11 - AAD_HSTREES
-# 12 - AAD_RSFOREST
-# ------------------------------
-DETECTOR_TYPE=$5
+    # ==============================
+    # Supported DETECTOR_TYPE:
+    # ------------------------------
+    #  7 - AAD_IFOREST
+    # 11 - AAD_HSTREES
+    # 12 - AAD_RSFOREST
+    # ------------------------------
+    DETECTOR_TYPE=$5
 
-# ==============================
-# Query types
-# ------------------------------
-# QUERY_DETERMINISIC = 1
-# QUERY_BETA_ACTIVE = 2
-# QUERY_QUANTILE = 3
-# QUERY_RANDOM = 4
-# QUERY_SEQUENTIAL = 5
-# QUERY_GP = 6 (Gaussian Process)
-# QUERY_SCORE_VAR = 7
-# ------------------------------
-QUERY_TYPE=$6
-
-# ==============================
-# Streaming Ind
-# ------------------------------
-# 0 - No streaming
-# 1 - Streaming
-# ------------------------------
-STREAMING_IND=$7
+    # ==============================
+    # Query types
+    # ------------------------------
+    # QUERY_DETERMINISIC = 1
+    # QUERY_BETA_ACTIVE = 2
+    # QUERY_QUANTILE = 3
+    # QUERY_RANDOM = 4
+    # QUERY_SEQUENTIAL = 5
+    # QUERY_GP = 6 (Gaussian Process)
+    # QUERY_SCORE_VAR = 7
+    # ------------------------------
+    QUERY_TYPE=$6
+    
+    # ==============================
+    # Query Confident
+    # ------------------------------
+    # 0 - No confidence check
+    # 1 - Query only instances having higher score than tau-th score with 95% confidence
+    # ------------------------------
+    QUERY_CONFIDENT=$7
+    
+    # ==============================
+    # Streaming Ind
+    # ------------------------------
+    # 0 - No streaming
+    # 1 - Streaming
+    # ------------------------------
+    STREAMING_IND=$8
+    
+    STREAM_WINDOW=$9  # 512
+fi
 
 UNIF_PRIOR_IND=1
 REPS=1  # number of independent data samples (input files)
@@ -74,8 +88,8 @@ CX=0.001
 MAX_BUDGET=300
 TOPK=0
 
-MAX_ANOMALIES_CONSTRAINT=1000
-MAX_NOMINALS_CONSTRAINT=1000
+MAX_ANOMALIES_CONSTRAINT=50  # 1000
+MAX_NOMINALS_CONSTRAINT=50  # 1000
 
 N_SAMPLES=256
 
@@ -112,7 +126,7 @@ elif [[ "$DETECTOR_TYPE" == "11" ]]; then
     CA=1
 elif [[ "$DETECTOR_TYPE" == "12" ]]; then
     INFERENCE_NAME="rsforest"
-    FOREST_SCORE_TYPE=6  #7
+    FOREST_SCORE_TYPE=7
     N_TREES=30
     CA=1
 fi
@@ -123,6 +137,10 @@ if [[ "$FOREST_LEAF_ONLY" == "1" ]]; then
     if [[ "$DETECTOR_TYPE" == "7" ]]; then
         # IFOR_SCORE_TYPE_NEG_PATH_LEN supported only for isolation forest leaf-only
         FOREST_SCORE_TYPE=4
+    elif [[ "$DETECTOR_TYPE" == "12" ]]; then
+        # NOTE: empirically, scoretype 7 works better than scoretype 6 for RSForest
+        # scoretype 7 is geometric mean. scoretype 6 is arithmetic mean.
+        FOREST_SCORE_TYPE=7  #6
     fi
 else
     FOREST_LEAF_ONLY=""
@@ -162,7 +180,19 @@ else
     UNIF_PRIOR=""
 fi
 
-STREAM_WINDOW=512
+MIN_FEEDBACK_PER_WINDOW=2
+MAX_FEEDBACK_PER_WINDOW=20
+MAX_WINDOWS=30
+
+if [[ "$QUERY_CONFIDENT" == "1" ]]; then
+    QUERY_CONFIDENT="--query_confident"
+    QUERY_CONFIDENT_SIG="_conf"
+    MAX_WINDOWS=100
+else
+    QUERY_CONFIDENT=
+    QUERY_CONFIDENT_SIG=
+fi
+
 ALLOW_STREAM_UPDATE=
 ALLOW_STREAM_UPDATE_SIG=
 ALLOW_STREAM_UPDATE_IND=1
@@ -174,7 +204,7 @@ fi
 if [[ "$STREAMING_IND" == "1" ]]; then
     STREAMING="--streaming"
     STREAMING_SIG="_stream"
-    STREAMING_FLAGS="${STREAM_WINDOW}${ALLOW_STREAM_UPDATE_SIG}"
+    STREAMING_FLAGS="${STREAM_WINDOW}${ALLOW_STREAM_UPDATE_SIG}_mw${MAX_WINDOWS}f${MIN_FEEDBACK_PER_WINDOW}_${MAX_FEEDBACK_PER_WINDOW}"
     PYSCRIPT=forest_aad_stream.py
 else
     STREAMING=""
@@ -190,14 +220,18 @@ fi
 #RUN_TYPE=simple
 RUN_TYPE=multi
 
-NAME_PREFIX="${INFERENCE_NAME}_trees${N_TREES}_samples${N_SAMPLES}_i${DETECTOR_TYPE}_q${QUERY_TYPE}_bd${BUDGET}_nscore${FOREST_SCORE_TYPE}${FOREST_LEAF_ONLY_SIG}_tau${TAU}${TAU_SIG}${WITH_PRIOR_SIG}_ca${CA}_cx${CX}_d${MAX_DEPTH}${STREAMING_SIG}${STREAMING_FLAGS}"
+NAME_PREFIX="${INFERENCE_NAME}_trees${N_TREES}_samples${N_SAMPLES}_i${DETECTOR_TYPE}_q${QUERY_TYPE}${QUERY_CONFIDENT_SIG}_bd${BUDGET}_nscore${FOREST_SCORE_TYPE}${FOREST_LEAF_ONLY_SIG}_tau${TAU}${TAU_SIG}${WITH_PRIOR_SIG}_ca${CA}_cx${CX}_d${MAX_DEPTH}${STREAMING_SIG}${STREAMING_FLAGS}"
 if [[ "$DETECTOR_TYPE" == "9" ]]; then
     NAME_PREFIX="${INFERENCE_NAME}_trees${N_TREES}_samples${N_SAMPLES}"
 fi
 
+DATASET_FOLDER=datasets
+if [[ "$DATASET" == "covtype" || "$DATASET" == "kddcup" ]]; then
+    DATASET_FOLDER=datasets${STREAMING_SIG}
+fi
+
 SCRIPT_PATH=./pyalad/${PYSCRIPT}
-# personal laptop
-BASE_DIR=./datasets${STREAMING_SIG}
+BASE_DIR=./${DATASET_FOLDER}
 LOG_PATH=./temp
 PYTHON_CMD=pythonw
 RESULTS_PATH="temp/$DATASET/${NAME_PREFIX}"
@@ -216,7 +250,8 @@ MODEL_FILE=${LOG_PATH}/${NAME_PREFIX}.mdl
 LOAD_MODEL=  # "--load_model"
 SAVE_MODEL=  # "--save_model"
 
-PLOT2D=  #"--plot2D"
+PLOT2D=
+#PLOT2D="--plot2D"
 
 ${PYTHON_CMD} ${SCRIPT_PATH} --startcol=$STARTCOL --labelindex=$LABELINDEX --header \
     --filedir=$ORIG_FEATURES_PATH --datafile=$DATA_FILE \
@@ -234,5 +269,8 @@ ${PYTHON_CMD} ${SCRIPT_PATH} --startcol=$STARTCOL --labelindex=$LABELINDEX --hea
     --n_explore=${N_EXPLORE} \
     --log_file=$LOG_FILE --cachedir=$MODEL_PATH \
     --modelfile=${MODEL_FILE} ${LOAD_MODEL} ${SAVE_MODEL} \
+    ${QUERY_CONFIDENT} --max_windows=${MAX_WINDOWS} \
+    --min_feedback_per_window=${MIN_FEEDBACK_PER_WINDOW} \
+    --max_feedback_per_window=${MAX_FEEDBACK_PER_WINDOW} \
     ${STREAMING} ${ALLOW_STREAM_UPDATE} --stream_window=${STREAM_WINDOW} ${PLOT2D} \
     --debug

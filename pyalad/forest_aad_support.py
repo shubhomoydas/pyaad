@@ -171,11 +171,11 @@ def plot_aad_score_var(x, y, x_forest, xx, yy, forest, metrics,
         # s_test = forest.get_score(x_test_forest, w)
         test_indexes = metrics.test_indexes[i]
         score_eval_set = x_test_forest
-        score_var, test_indexes, v_eval = \
+        score_mean, score_var, test_indexes, v_eval, _ = \
             get_score_variances(x=x_forest, w=w,
+                                n_test=len(test_indexes) if test_indexes is not None else 10,
                                 ordered_indexes=ranked_indexes,
                                 queried_indexes=queried,
-                                n_test=len(test_indexes) if test_indexes is not None else 10,
                                 test_indexes=test_indexes,
                                 eval_set=score_eval_set,
                                 n_closest=9)

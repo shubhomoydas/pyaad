@@ -78,6 +78,7 @@ if run_aad:
     baseline_query_info = []
 
     for runidx in opts.get_runidxs():
+        tm_run = Timer()
         opts.set_multi_run_options(opts.fid, runidx)
 
         rng = np.random.RandomState(args.randseed + opts.fid * opts.reruns + runidx)
@@ -140,7 +141,8 @@ if run_aad:
             queried = np.argsort(orig_iforest_scores)
             n_found = np.cumsum(labels[queried[np.arange(60)]])
             all_orig_iforest = all_orig_iforest + ",".join([str(v) for v in n_found]) + os.linesep
-            logger.debug("Completed runidx: %d" % runidx)
+
+        logger.debug(tm_run.message("Completed runidx: %d" % runidx))
 
         if not run_tests:
             metrics = None  # release memory

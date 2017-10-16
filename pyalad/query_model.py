@@ -43,10 +43,13 @@ class QueryTop(Query):
     def get_next_query(self, **kwargs):
         ordered_indexes = kwargs.get("ordered_indexes")
         queried_items = kwargs.get("queried_items")
-        items = get_first_vals_not_marked(ordered_indexes, queried_items, start=0, n=1)
-        if len(items) > 0:
+        n = kwargs.get("n", 1)
+        items = get_first_vals_not_marked(ordered_indexes, queried_items, start=0, n=n)
+        if len(items) == 0:
+            return None
+        elif n == 1:
             return items[0]
-        return None
+        return items
 
 
 class QueryGP(Query):
@@ -134,11 +137,11 @@ class QueryScoreVar(Query):
             # explore
             x = kwargs.get("x")
             w = kwargs.get("w")
-            vars, test_indexes, _ = \
+            means, vars, test_indexes, _, _ = \
                 get_score_variances(x, w,
+                                    n_test=self.opts.n_explore,
                                     ordered_indexes=ordered_indexes,
-                                    queried_indexes=queried_items,
-                                    n_test=self.opts.n_explore)
+                                    queried_indexes=queried_items)
             self.test_indexes = test_indexes
             if False:
                 logger.debug("score_var:\n%s\ntest_indexes:\n%s" %

@@ -11,6 +11,8 @@ def write_sequential_results_to_csv(results, opts):
     prefix = opts.get_alad_metrics_name_prefix()
     num_seen_file = os.path.join(opts.resultsdir, "%s-num_seen.csv" % (prefix,))
     baseline_file = os.path.join(opts.resultsdir, "%s-baseline.csv" % (prefix,))
+    stream_window_file = os.path.join(opts.resultsdir, "%s-window.csv" % (prefix,))
+    stream_window_baseline_file = os.path.join(opts.resultsdir, "%s-window-baseline.csv" % (prefix,))
     queried_idxs_file = os.path.join(opts.resultsdir, "%s-queried.csv" % (prefix,))
     queried_idxs_baseline_file = os.path.join(opts.resultsdir, "%s-queried-baseline.csv" % (prefix,))
     aucs_file = os.path.join(opts.resultsdir, "%s-aucs.csv" % (prefix,))
@@ -22,6 +24,10 @@ def write_sequential_results_to_csv(results, opts):
         np.savetxt(queried_idxs_file, results.true_queried_indexes, fmt='%d', delimiter=',')
     if results.true_queried_indexes_baseline is not None:
         np.savetxt(queried_idxs_baseline_file, results.true_queried_indexes_baseline, fmt='%d', delimiter=',')
+    if results.stream_window is not None:
+        np.savetxt(stream_window_file, results.stream_window, fmt='%d', delimiter=',')
+    if results.stream_window_baseline is not None:
+        np.savetxt(stream_window_baseline_file, results.stream_window_baseline, fmt='%d', delimiter=',')
     if results.aucs is not None:
         np.savetxt(aucs_file, results.aucs, fmt='%f', delimiter=',')
 

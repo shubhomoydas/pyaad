@@ -96,20 +96,31 @@ def get_closest_indexes(inst, test_set, num=1, dest_set=None):
 def get_linear_score_variance(x, w):
     indxs = x.nonzero()[1]  # column indexes
     x_ = x[0, indxs].todense()
-    xw = x_.reshape(-1, 1) * w[indxs]
+    xw = np.array(x_) * w[indxs]
+    # xw = x_.reshape(-1, 1) * w[indxs]
     # logger.debug("xw:\n%s" % str(list(xw)))
     #xw = np.array(x[0, indxs].multiply(w[indxs]))
     #xw_mean = xw.mean(axis=1)[0]
     #xw_sq = xw ** 2
     #var = xw_sq.mean(axis=1)[0] - xw_mean ** 2
     var = np.var(xw)
-    return var
+    score = np.sum(xw)
+    if False:
+        s = x.dot(w)
+        if s != score:
+            logger.debug("size of x: %s" % str(x.shape))
+            logger.debug("x_: %s" % str(list(x_)))
+            logger.debug("w : %s" % str(list(w[indxs])))
+            logger.debug("xw: %s" % str(list(xw)))
+            raise ArithmeticError("s=%f != score=%f" % (s, score))
+    return score, var
 
 
-def get_score_variances(x, w, ordered_indexes, queried_indexes, n_test,
+def get_score_variances(x, w, n_test, ordered_indexes=None, queried_indexes=None,
                         test_indexes=None,
                         eval_set=None, n_closest=9):
     if test_indexes is None:
+        n_test = min(x.shape[0], n_test)
         top_ranked_indexes = ordered_indexes[np.arange(len(queried_indexes) + n_test)]
         tmp = np.array(SetList(top_ranked_indexes) - SetList(queried_indexes))
         test = tmp[np.arange(n_test)]
@@ -120,24 +131,27 @@ def get_score_variances(x, w, ordered_indexes, queried_indexes, n_test,
 
     tm = Timer()
     vars = np.zeros(len(test))
+    means = np.zeros(len(test))
     for i, idx in enumerate(test):
-        vars[i] = get_linear_score_variance(x[idx, :], w)
-    logger.debug(tm.message("Time for score variance computation on test set:"))
+        means[i], vars[i] = get_linear_score_variance(x[idx], w)
+    # logger.debug(tm.message("Time for score variance computation on test set:"))
 
     v_eval = None
+    m_eval = None
     if eval_set is not None:
         tm = Timer()
         v_eval = np.zeros(eval_set.shape[0], dtype=float)
+        m_eval = np.zeros(eval_set.shape[0], dtype=float)
         closest_indexes = set()  # all indexes from test_set that are closest to any unlabeled instances
         for i in range(n_test):
             test_index = test[i]
             get_closest_indexes(x[test_index, :], eval_set, num=n_closest, dest_set=closest_indexes)
         logger.debug("# Closest: %d" % len(closest_indexes))
         for i, idx in enumerate(closest_indexes):
-            v_eval[idx] = get_linear_score_variance(eval_set[idx, :], w)
+            m_eval[idx], v_eval[idx] = get_linear_score_variance(eval_set[idx, :], w)
         logger.debug(tm.message("Time for score variance computation on eval set:"))
 
-    return vars, test, v_eval
+    return means, vars, test, v_eval, m_eval
 
 
 def get_gp_predictions(x, y, ordered_indexes,

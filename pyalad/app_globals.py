@@ -237,8 +237,16 @@ def get_option_list():
                         help="Whether to run the algorithm in streaming setting")
     parser.add_argument("--stream_window", action="store", type=int, default=512,
                         help="Number of instances to hold in buffer before updating the model")
+    parser.add_argument("--max_windows", action="store", type=int, default=30,
+                        help="Maximum number of windows of streaming data to read")
+    parser.add_argument("--min_feedback_per_window", action="store", type=int, default=2,
+                        help="Min. number of instances to query per streaming window")
+    parser.add_argument("--max_feedback_per_window", action="store", type=int, default=20,
+                        help="Max. number of instances to query per streaming window")
     parser.add_argument("--allow_stream_update", action="store_true", default=False,
                         help="Update the model when the window buffer is full in the streaming setting")
+    parser.add_argument("--query_confident", action="store_true", default=False,
+                        help="Whether to query only those top ranked instances for which we are confident the score is at least 1 std-dev higher than tau-th ranked instance' score")
     return parser
 
 
@@ -355,7 +363,11 @@ class Opts(object):
 
         self.streaming = args.streaming
         self.stream_window = args.stream_window
+        self.max_windows = args.max_windows
+        self.min_feedback_per_window = args.min_feedback_per_window
+        self.max_feedback_per_window = args.max_feedback_per_window
         self.allow_stream_update = args.allow_stream_update
+        self.query_confident = args.query_confident
 
         self.modelfile = args.modelfile
         self.load_model = args.load_model
@@ -381,13 +393,15 @@ class Opts(object):
         self.runidx = runidx
 
     def query_name_str(self):
-        s = query_type_names[self.qtype]
+        s = "%s%s" % (query_type_names[self.qtype], "" if not self.query_confident else "_conf")
         if self.qtype == QUERY_SEQUENTIAL:
             s = "%s_nc%d_d%d" % (s, self.query_search_candidates, self.query_search_depth)
         return s
 
     def streaming_str(self):
-        return "sw%d_asu%s" % (self.stream_window, str(self.allow_stream_update))
+        return "sw%d_asu%s_mw%df%d_%d" % (self.stream_window, str(self.allow_stream_update),
+                                          self.max_windows, self.min_feedback_per_window,
+                                          self.max_feedback_per_window)
 
     def detector_type_str(self):
         s = detector_types[self.detector_type]

@@ -17,7 +17,7 @@ class DataStream(object):
         n = min(n, self.X.shape[0])
         # logger.debug("DataStream.read_next_from_stream n: %d" % n)
         if n == 0:
-            return None
+            return None, None
         mask = np.zeros(self.X.shape[0], dtype=bool)
         mask[np.arange(n)] = True
         instances = self.X[mask]

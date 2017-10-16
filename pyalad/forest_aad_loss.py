@@ -2,8 +2,8 @@ import numpy as np
 from r_support import *
 
 
-def if_aad_loss_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
-                       withprior=False, w_prior=None, sigma2=1.0):
+def forest_aad_loss_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
+                           withprior=False, w_prior=None, sigma2=1.0):
     """
     Computes AAD loss:
         for square_slack:
@@ -72,8 +72,8 @@ def if_aad_loss_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, 
     return loss
 
 
-def if_aad_loss_gradient_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
-                                withprior=False, w_prior=None, sigma2=1.0):
+def forest_aad_loss_gradient_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
+                                    withprior=False, w_prior=None, sigma2=1.0):
     """
     Computes jacobian of AAD loss:
         for square_slack:
@@ -92,16 +92,24 @@ def if_aad_loss_gradient_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None,
     loss_n = rep(0, m)  # the derivative of loss w.r.t w for nominals
     n_anom = 0
     n_noml = 0
+    anom_idxs = list()
+    noml_idxs = list()
+    anom_tau_idxs = list()
+    noml_tau_idxs = list()
+
     tau_score = None
     if x_tau is not None:
         tau_score = x_tau.dot(w)
+
     for i in range(len(yi)):
         lbl = yi[i]
         if lbl == 1 and s[i] < qval:
-            loss_a[:] = loss_a - Ca * xi[i, :]
+            # loss_a[:] = loss_a - Ca * xi[i, :]
+            anom_idxs.append(i)
             n_anom += 1
         elif lbl == 0 and s[i] >= qval:
-            loss_n[:] = loss_n + Cn * xi[i, :]
+            # loss_n[:] = loss_n + Cn * xi[i, :]
+            noml_idxs.append(i)
             n_noml += 1
         else:
             # no loss
@@ -109,7 +117,6 @@ def if_aad_loss_gradient_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None,
 
         # add loss-gradient relative to tau-th ranked instance
         if x_tau is not None and (in_constr_set is None or in_constr_set[i] == 1):
-            # TODO: Test this code.
             # add loss-gradient relative to tau-th ranked instance
             # loss =
             #   Cx * (x_tau - xi).w  if yi = 1 and (x_tau - xi).w > 0
@@ -119,12 +126,29 @@ def if_aad_loss_gradient_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None,
             #   Cx * (xi - x_tau)  if y1 = 0 and (xi - x_tau).w > 0
             tau_val = tau_score[0]
             if lbl == 1 and s[i] < tau_val:
-                loss_a[:] = loss_a + Cx * (x_tau - xi[i, :])
+                # loss_a[:] = loss_a + Cx * (x_tau - xi[i, :])
+                anom_tau_idxs.append(i)
             elif lbl == 0 and s[i] >= tau_val:
-                loss_n[:] = loss_n + Cx * (xi[i, :] - x_tau)
+                # loss_n[:] = loss_n + Cx * (xi[i, :] - x_tau)
+                noml_tau_idxs.append(i)
             else:
                 # no loss
                 pass
+
+    anom_idxs = np.array(anom_idxs, dtype=int)
+    noml_idxs = np.array(noml_idxs, dtype=int)
+    anom_tau_idxs = np.array(anom_tau_idxs, dtype=int)
+    noml_tau_idxs = np.array(noml_tau_idxs, dtype=int)
+
+    if len(anom_idxs) > 0:
+        loss_a[:] = -Ca * np.sum(xi[anom_idxs], axis=0)
+    if len(anom_tau_idxs) > 0:
+        loss_a[:] = loss_a + Cx * (len(anom_tau_idxs) * x_tau - np.sum(xi[anom_tau_idxs], axis=0))
+
+    if len(noml_idxs) > 0:
+        loss_n[:] = Cn * np.sum(xi[noml_idxs], axis=0)
+    if len(noml_tau_idxs) > 0:
+        loss_n[:] = loss_n + Cx * (np.sum(xi[noml_tau_idxs], axis=0) - len(noml_tau_idxs) * x_tau)
 
     grad[0:m] = (loss_a / max(1, n_anom)) + (loss_n / max(1, n_noml))
 
@@ -135,8 +159,8 @@ def if_aad_loss_gradient_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None,
     return grad
 
 
-def if_aad_loss_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
-                    withprior=False, w_prior=None, sigma2=1.0):
+def forest_aad_loss_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
+                        withprior=False, w_prior=None, sigma2=1.0):
     """
     Computes AAD loss:
         for square_slack:
@@ -204,8 +228,8 @@ def if_aad_loss_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=
     return loss
 
 
-def if_aad_loss_gradient_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
-                             withprior=False, w_prior=None, sigma2=1.0):
+def forest_aad_loss_gradient_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0, Cn=1.0, Cx=1.0,
+                                 withprior=False, w_prior=None, sigma2=1.0):
     """
     Computes jacobian of AAD loss:
         for square_slack:

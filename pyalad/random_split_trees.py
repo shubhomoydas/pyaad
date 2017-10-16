@@ -752,7 +752,7 @@ class RandomSplitForest(StreamingSupport):
 
     def predict(self, X):
         """Predict if a particular sample is an outlier or not."""
-        raise NotImplementedError("predict() is not supported for HSTrees")
+        raise NotImplementedError("predict() is not supported for RandomTrees")
 
     def decision_function(self, X):
         """Average anomaly score of X of the base classifiers."""
@@ -767,8 +767,8 @@ class RandomSplitForest(StreamingSupport):
             for tree_id, hst in enumerate(self.estimators_):
                 tm_tree = Timer()
                 hst_scores.append(hst.decision_function(X))
-                logger.debug(tm_tree.message("completed HSTree[%d] decision function" % tree_id))
-        logger.debug(tm.message("completed HSTrees decision_function"))
+                logger.debug(tm_tree.message("completed Tree[%d] decision function" % tree_id))
+        logger.debug(tm.message("completed Trees decision_function"))
         for s in hst_scores:
             scores += s
         scores /= len(hst_scores)

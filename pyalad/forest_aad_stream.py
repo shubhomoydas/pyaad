@@ -30,10 +30,11 @@ class StreamingAnomalyDetector(object):
         buffer_instances_x: list
     """
     def __init__(self, stream, model, labeled_x=None, labeled_y=None,
-                 unlabeled_x=None, unlabeled_y=None, max_buffer=512):
+                 unlabeled_x=None, unlabeled_y=None, opts=None, max_buffer=512):
         self.model = model
         self.stream = stream
         self.max_buffer = max_buffer
+        self.opts = opts
 
         self.buffer_x = None
         self.buffer_y = None
@@ -73,7 +74,7 @@ class StreamingAnomalyDetector(object):
         if self.unlabeled_x is not None:
             n += nrow(self.unlabeled_x)
         if self.labeled_x is not None:
-            logger.debug("labeled_x: %s" % str(self.labeled_x.shape))
+            # logger.debug("labeled_x: %s" % str(self.labeled_x.shape))
             n += nrow(self.labeled_x)
         return n
 
@@ -87,6 +88,9 @@ class StreamingAnomalyDetector(object):
         if n == 0:
             n = self.max_buffer
         x, y = self.stream.read_next_from_stream(n)
+
+        if x is None:
+            return x, y
 
         if False:
             if self.buffer_x is not None:
@@ -104,6 +108,8 @@ class StreamingAnomalyDetector(object):
 
     def get_next_transformed(self, n=1):
         x, y = self.get_next_from_stream(n)
+        if x is None:
+            return x, y
         x_new = self.model.transform_to_region_features(x, dense=False)
         return x_new, y
 
@@ -150,9 +156,18 @@ class StreamingAnomalyDetector(object):
                     y = np.append(y, np.ones(nrow(self.unlabeled_x), dtype=int) * -1)
                 else:
                     y = np.ones(nrow(self.unlabeled_x), dtype=int) * -1
-        if True:
+        if False:
             logger.debug("x: %d, y: %d, ha: %d, hn:%d" % (nrow(x), len(y), len(ha), len(hn)))
         return x, y, ha, hn
+
+    def get_instance_stats(self):
+        nha = nhn = nul = 0
+        if self.labeled_y is not None:
+            nha = len(np.where(self.labeled_y == 1)[0])
+            nhn = len(np.where(self.labeled_y == 0)[0])
+        if self.unlabeled_x is not None:
+            nul = nrow(self.unlabeled_x)
+        return nha, nhn, nul
 
     def get_num_labeled(self):
         """Returns the number of instances for which we already have label feedback"""
@@ -160,28 +175,32 @@ class StreamingAnomalyDetector(object):
             return len(self.labeled_y)
         return 0
 
-    def get_query_data(self, x=None, y=None, ha=None, hn=None):
+    def get_query_data(self, x=None, y=None, ha=None, hn=None, unl=None, w=None):
         """Returns the best instance that should be queried, along with other data structures"""
         n = self.get_num_instances()
         n_feedback = self.get_num_labeled()
-        if True:
+        if False:
             logger.debug("get_query_data() n: %d, n_feedback: %d" % (n, n_feedback))
         if n == 0:
             raise ValueError("No instances available")
         if x is None:
             x, y, ha, hn = self.setup_data_for_feedback()
-        x_transformed = model.transform_to_region_features(x, dense=False)
+        if w is None:
+            w = self.model.w
+        if unl is None:
+            unl = np.zeros(0, dtype=int)
+        x_transformed = self.model.transform_to_region_features(x, dense=False)
         order_anom_idxs, anom_score = self.model.order_by_score(x_transformed)
         xi = self.qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
-                                        queried_items=np.arange(n_feedback),
+                                        queried_items=append(np.arange(n_feedback), unl),
                                         x=x_transformed, lbls=y, anom_score=anom_score,
-                                        w=self.model.w, hf=append(ha, hn),
-                                        remaining_budget=opts.budget - n_feedback)
-        if True:
+                                        w=w, hf=append(ha, hn),
+                                        remaining_budget=self.opts.budget - n_feedback)
+        if False:
             logger.debug("ordered instances[%d]: %s\nha: %s\nhn: %s\nxi: %d" %
-                         (opts.budget, str(list(order_anom_idxs[0:opts.budget])),
+                         (self.opts.budget, str(list(order_anom_idxs[0:self.opts.budget])),
                           str(list(ha)), str(list(hn)), xi))
-        return xi, x, y, x_transformed, ha, hn
+        return xi, x, y, x_transformed, ha, hn, order_anom_idxs, anom_score
 
     def move_unlabeled_to_labeled(self, xi, yi):
         unlabeled_idx = xi - self.get_num_labeled()
@@ -208,7 +227,7 @@ class StreamingAnomalyDetector(object):
 
         # Add the newly labeled instance to the corresponding list of labeled
         # instances and remove it from the unlabeled set.
-        sad.move_unlabeled_to_labeled(xi, yi)
+        self.move_unlabeled_to_labeled(xi, yi)
 
         if yi == 1:
             ha = append(ha, [xi])
@@ -216,6 +235,23 @@ class StreamingAnomalyDetector(object):
             hn = append(hn, [xi])
 
         self.model.update_weights(x_transformed, y, ha, hn, opts)
+
+    def get_score_variance(self, x, n_instances, opts, transform=False):
+        """Computes variance in scores of top ranked instances
+        """
+        w = self.model.w
+        if w is None:
+            raise ValueError("Model not trained")
+        if transform:
+            x = self.model.transform_to_region_features(x, dense=False)
+        ordered_indexes, scores = self.model.order_by_score(x, w=w)
+        bt = get_budget_topK(n_instances, opts)
+        tn = min(10, nrow(x))
+        vars = np.zeros(tn, dtype=float)
+        for i in np.arange(tn):
+            vars[i] = get_linear_score_variance(x[ordered_indexes[i], :], w)
+        # logger.debug("top %d vars:\n%s" % (tn, str(list(vars))))
+        return vars
 
 
 def get_rearranging_indexes(add_pos, move_pos, n):
@@ -290,120 +326,233 @@ def prepare_aad_model(X, y, opts):
     return model
 
 
-def run_feedback(streamAD, n_runs, opts):
+def run_feedback(sad, min_feedback, max_feedback, opts):
     """
 
-    :param streamAD: StreamingAnomalyDetector
-    :param n_runs: int
+    :param sad: StreamingAnomalyDetector
+    :param max_feedback: int
     :param opts: Opts
     :return:
     """
-    # get baseline metrics
-    x_transformed = model.transform_to_region_features(streamAD.unlabeled_x, dense=False)
-    ordered_idxs, _ = streamAD.model.order_by_score(x_transformed)
-    seen_baseline = streamAD.unlabeled_y[ordered_idxs[0:n_runs]]
-    num_seen_baseline = np.cumsum(seen_baseline)
-    logger.debug("num_seen_baseline:\n%s" % str(list(num_seen_baseline)))
 
-    for i in np.arange(n_runs):
-        xi, x, y, x_transformed, ha, hn = sad.get_query_data()
-        sad.update_weights_with_feedback(xi, y[xi], x, y, x_transformed, ha, hn, opts)
-        logger.debug("\nha: %s\nhn: %s" % (str(list(ha)), str(list(hn))))
-        logger.debug("y:\n%s" % str(list(y)))
-    logger.debug("w:\n%s" % str(list(streamAD.model.w)))
+    if False:
+        # get baseline metrics
+        x_transformed = sad.model.transform_to_region_features(sad.unlabeled_x, dense=False)
+        ordered_idxs, _ = sad.model.order_by_score(x_transformed)
+        seen_baseline = sad.unlabeled_y[ordered_idxs[0:max_feedback]]
+        num_seen_baseline = np.cumsum(seen_baseline)
+        logger.debug("num_seen_baseline:\n%s" % str(list(num_seen_baseline)))
+
+    # baseline scores
+    w_unif = sad.model.get_uniform_weights()
+    x_transformed_baseline = sad.model.transform_to_region_features(sad.unlabeled_x, dense=False)
+    order_baseline, scores_baseline = sad.model.order_by_score(x_transformed_baseline, w_unif)
+    n_seen_baseline = min(max_feedback, len(sad.unlabeled_y))
+    queried_baseline = order_baseline[0:n_seen_baseline]
+    seen_baseline = sad.unlabeled_y[queried_baseline]
+    # seen_baseline = min(max_feedback, len(sad.unlabeled_y))
+    # found_baseline = np.sum(sad.unlabeled_y[order_baseline[0:seen_baseline]])
+
+    seen = np.zeros(0, dtype=int)
+    queried = np.zeros(0, dtype=int)
+    unl = np.zeros(0, dtype=int)
+    for i in np.arange(max_feedback):
+        # scores based on current weights
+        xi, x, y, x_transformed, ha, hn, order_anom_idxs, anom_score = sad.get_query_data(unl=unl)
+
+        bt = get_budget_topK(x_transformed.shape[0], opts)
+        tau_rank = min(max(bt.topK, 10), x.shape[0])
+        means, vars, test, v_eval, _ = get_score_variances(x_transformed, sad.model.w,
+                                                           n_test=tau_rank,
+                                                           ordered_indexes=order_anom_idxs,
+                                                           queried_indexes=append(ha, hn))
+        m_tau = v_tau = 0.
+        if opts.query_confident:
+            m_tau, v_tau, _, _, _ = get_score_variances(x_transformed[order_anom_idxs[tau_rank]],
+                                                        sad.model.w, n_test=1,
+                                                        test_indexes=np.array([0], dtype=int))
+        qpos = np.where(test == xi)[0]
+        # check if we are confident that this is larger than the tau-th ranked instance
+        if not opts.query_confident or (i < min_feedback or
+                                        means[qpos] - 1 * np.sqrt(vars[qpos]) >= m_tau):
+            seen = append(seen, [y[xi]])
+            queried = append(queried, xi)
+            # seen += 1
+            # found += y[xi]
+            tm_update = Timer()
+            sad.update_weights_with_feedback(xi, y[xi], x, y, x_transformed, ha, hn, opts)
+            tm_update.end()
+            # reset the list of queried test instances because their scores would have changed
+            unl = np.zeros(0, dtype=int)
+            if True:
+                nha, nhn, nul = sad.get_instance_stats()
+                # logger.debug("xi:%d, test indxs: %s, qpos: %d" % (xi, str(list(test)), qpos))
+                # logger.debug("tau score:\n%s (%s)" % (str(list(m_tau)), str(list(v_tau))))
+                # strmv = ",".join(["%f (%f)" % (means[j], vars[j]) for j in np.arange(len(means))])
+                # logger.debug("scores:\n%s" % strmv)
+                # logger.debug("orig scores:\n%s" % str(list(anom_score[order_anom_idxs[0:tau_rank]])))
+                logger.debug("[%d] #feedback: %d; ha: %d; hn: %d, mnw: %d, mxw: %d; update: %f sec(s)" %
+                             (i, nha + nhn, nha, nhn, min_feedback, max_feedback, tm_update.elapsed()))
+        else:
+            unl = append(unl, [xi])
+            # logger.debug("skipping feedback for xi=%d at iter %d; unl: %s" % (xi, i, str(list(unl))))
+            continue
+        # logger.debug("y:\n%s" % str(list(y)))
+    # logger.debug("w:\n%s" % str(list(sad.model.w)))
+    # logger.debug("\nseen   : %s\nqueried: %s" % (str(list(seen)), str(list(queried))))
+    return seen, seen_baseline, None, None
 
 
-if False:
-    # DEBUG
-    args = prepare_forest_aad_debug_args()
-else:
-    # PRODUCTION
-    args = get_command_args(debug=False)
-# print "log file: %s" % args.log_file
-configure_logger(args)
+def main():
 
-opts = Opts(args)
-# print opts.str_opts()
-logger.debug(opts.str_opts())
+    if False:
+        # DEBUG
+        args = prepare_forest_aad_debug_args()
+    else:
+        # PRODUCTION
+        args = get_command_args(debug=False)
+    # print "log file: %s" % args.log_file
+    configure_logger(args)
 
-if not opts.streaming:
-    raise ValueError("Only streaming supported")
+    opts = Opts(args)
+    # print opts.str_opts()
+    logger.debug(opts.str_opts())
 
-X_full, y_full = read_data(opts)
-# X_train = X_train[0:10, :]
-# labels = labels[0:10]
+    if not opts.streaming:
+        raise ValueError("Only streaming supported")
 
-logger.debug("loaded file: (%s) %s" % (str(X_full.shape), opts.datafile))
-logger.debug("results dir: %s" % opts.resultsdir)
+    X_full, y_full = read_data(opts)
+    # X_train = X_train[0:10, :]
+    # labels = labels[0:10]
 
-all_num_seen_baseline = None
-all_queried_baseline = None
-aucs = np.zeros(0, dtype=float)
+    logger.debug("loaded file: (%s) %s" % (str(X_full.shape), opts.datafile))
+    logger.debug("results dir: %s" % opts.resultsdir)
 
-opts.fid = 1
-for runidx in opts.get_runidxs():
-    opts.set_multi_run_options(opts.fid, runidx)
+    all_num_seen = None
+    all_num_seen_baseline = None
+    all_window = None
+    all_window_baseline = None
 
-    stream = DataStream(X_full, y_full)
-    X_train, y_train = stream.read_next_from_stream(opts.stream_window)
+    aucs = np.zeros(0, dtype=float)
 
-    # logger.debug("X_train:\n%s\nlabels:\n%s" % (str(X_train), str(list(labels))))
+    opts.fid = 1
+    for runidx in opts.get_runidxs():
+        tm_run = Timer()
+        opts.set_multi_run_options(opts.fid, runidx)
 
-    model = prepare_aad_model(X_train, y_train, opts)  # initial model training
-    sad = StreamingAnomalyDetector(stream, model, unlabeled_x=X_train, unlabeled_y=y_train,
-                                   max_buffer=opts.stream_window)
-    sad.init_query_state(opts)
+        stream = DataStream(X_full, y_full)
+        X_train, y_train = stream.read_next_from_stream(opts.stream_window)
 
-    if True:
-        run_feedback(sad, opts.budget, opts)
-        print "This is experimental/demo code for streaming integration and will be application specific." + \
-              " Exiting after reading max %d instances from stream and iterating for %d feedback..." % \
-                (opts.stream_window, opts.budget)
-        exit(0)
+        # logger.debug("X_train:\n%s\nlabels:\n%s" % (str(X_train), str(list(labels))))
 
-    all_scores = np.zeros(0)
-    all_y = np.zeros(0)
+        model = prepare_aad_model(X_train, y_train, opts)  # initial model training
+        sad = StreamingAnomalyDetector(stream, model, unlabeled_x=X_train, unlabeled_y=y_train,
+                                       max_buffer=opts.stream_window, opts=opts)
+        sad.init_query_state(opts)
 
-    scores = sad.get_anomaly_scores(X_train)
-    # auc = fn_auc(cbind(y_train, -scores))
-    all_scores = np.append(all_scores, scores)
-    all_y = np.append(all_y, y_train)
-    iter = 0
-    while not sad.stream_buffer_empty():
-        iter += 1
+        if False:
+            # use for DEBUG only
+            run_feedback(sad, 0, opts.budget, opts)
+            print "This is experimental/demo code for streaming integration and will be application specific." + \
+                  " Exiting after reading max %d instances from stream and iterating for %d feedback..." % \
+                    (opts.stream_window, opts.budget)
+            exit(0)
 
-        xi, x, y, x_transformed, ha, hn = sad.get_query_data()
+        all_scores = np.zeros(0)
+        all_y = np.zeros(0, dtype=int)
 
-        sad.update_weights_with_feedback(xi, y[xi], x, y, x_transformed, ha, hn, opts)
-        # logger.debug("updated weights:\n%s" % str(list(model.w)))
-
-        x_eval, y_eval = sad.get_next_from_stream(sad.max_buffer)
-        scores = sad.get_anomaly_scores(x_eval)  # compute scores before updating the model
-
+        scores = sad.get_anomaly_scores(X_train)
+        # auc = fn_auc(cbind(y_train, -scores))
         all_scores = np.append(all_scores, scores)
-        all_y = np.append(all_y, y_eval)
+        all_y = np.append(all_y, y_train)
+        iter = 0
+        seen = np.zeros(0, dtype=int)
+        seen_baseline = np.zeros(0, dtype=int)
+        stream_window_tmp = np.zeros(0, dtype=int)
+        stream_window_baseline = np.zeros(0, dtype=int)
+        stop_iter = False
+        while not stop_iter:
+            iter += 1
 
-        if opts.allow_stream_update:
-            sad.update_model_from_buffer()
+            tm = Timer()
+            seen_, seen_baseline_, queried_, queried_baseline_ = run_feedback(sad,
+                                                                              opts.min_feedback_per_window,
+                                                                              opts.max_feedback_per_window,
+                                                                              opts)
+            seen = append(seen, seen_)
+            seen_baseline = append(seen_baseline, seen_baseline_)
+            stream_window_tmp = append(stream_window_tmp, np.ones(len(seen_)) * iter)
+            stream_window_baseline = append(stream_window_baseline, np.ones(len(seen_baseline_)) * iter)
+            # queried = append(queried, queried_)
+            # queried_baseline = append(queried_baseline, queried_baseline_)
+            # logger.debug("seen:\n%s;\nbaseline:\n%s" % (str(list(seen)), str(list(seen_baseline))))
 
-        sad.move_buffer_to_unlabeled()
-        # logger.debug("iter %d" % iter)
+            x_eval, y_eval = sad.get_next_from_stream(sad.max_buffer)
+            if x_eval is None or iter >= opts.max_windows:
+                if iter >= opts.max_windows:
+                    logger.debug("Exceeded %d iters; exiting stream read..." % opts.max_windows)
+                stop_iter = True
+            else:
+                scores = sad.get_anomaly_scores(x_eval)  # compute scores before updating the model
 
-    auc = fn_auc(cbind(all_y, -all_scores))
-    logger.debug("AUC: %f" % auc)
-    aucs = append(aucs, [auc])
+                all_scores = np.append(all_scores, scores)
+                all_y = np.append(all_y, y_eval)
 
-    queried_baseline = order(all_scores, decreasing=True)[0:opts.budget]
-    num_seen_baseline = np.cumsum(all_y[queried_baseline])
-    logger.debug("Numseen in %d budget:\n%s" % (opts.budget, str(list(num_seen_baseline))))
+                if opts.allow_stream_update:
+                    sad.update_model_from_buffer()
 
-    queried_baseline = append(np.array([opts.fid, opts.runidx], dtype=queried_baseline.dtype), queried_baseline)
-    num_seen_baseline = append(np.array([opts.fid, opts.runidx], dtype=num_seen_baseline.dtype), num_seen_baseline)
-    all_queried_baseline = rbind(all_queried_baseline, matrix(queried_baseline, nrow=1))
-    all_num_seen_baseline = rbind(all_num_seen_baseline, matrix(num_seen_baseline, nrow=1))
+                sad.move_buffer_to_unlabeled()
 
-    logger.debug("Completed runidx: %d" % runidx)
+            logger.debug(tm.message("Stream window [%d]: algo [%d/%d]; baseline [%d/%d]: " %
+                                    (iter, np.sum(seen), len(seen), np.sum(seen_baseline), len(seen_baseline))))
 
-results = SequentialResults(num_seen_baseline=all_num_seen_baseline,
-                            true_queried_indexes_baseline=all_queried_baseline, aucs=aucs)
-write_sequential_results_to_csv(results, opts)
+        auc = fn_auc(cbind(all_y, -all_scores))
+        # logger.debug("AUC: %f" % auc)
+        aucs = append(aucs, [auc])
+
+        # queried_baseline = order(all_scores, decreasing=True)[0:opts.budget]
+        num_seen_tmp = np.cumsum(seen)  # np.cumsum(all_y[queried])
+        # logger.debug("\nnum_seen    : %s" % (str(list(num_seen_tmp)),))
+
+        num_seen_baseline = np.cumsum(seen_baseline)  # np.cumsum(all_y[queried_baseline])
+        # logger.debug("Numseen in %d budget (overall):\n%s" % (opts.budget, str(list(num_seen_baseline))))
+
+        stream_window_baseline = append(np.array([opts.fid, opts.runidx],
+                                                 dtype=stream_window_baseline.dtype),
+                                        stream_window_baseline)
+        stream_window = np.ones(len(stream_window_baseline) + 2, dtype=stream_window_tmp.dtype) * -1
+        stream_window[0:2] = [opts.fid, opts.runidx]
+        stream_window[2:(2+len(stream_window_tmp))] = stream_window_tmp
+
+        # queried = append(np.array([opts.fid, opts.runidx], dtype=queried.dtype), queried)
+        # queried_baseline = append(np.array([opts.fid, opts.runidx], dtype=queried_baseline.dtype), queried_baseline)
+
+        # num_seen_baseline has the uniformly maximum number of queries.
+        # the number of queries in num_seen will vary under the query confidence mode
+        num_seen = np.ones(len(num_seen_baseline) + 2, dtype=num_seen_tmp.dtype) * -1
+        num_seen[0:2] = [opts.fid, opts.runidx]
+        num_seen[2:(2+len(num_seen_tmp))] = num_seen_tmp
+
+        num_seen_baseline = append(np.array([opts.fid, opts.runidx], dtype=num_seen_baseline.dtype), num_seen_baseline)
+
+        # all_queried = rbind(all_queried, matrix(queried, nrow=1))
+        # all_queried_baseline = rbind(all_queried_baseline, matrix(queried_baseline, nrow=1))
+
+        all_num_seen = rbind(all_num_seen, matrix(num_seen, nrow=1))
+        all_num_seen_baseline = rbind(all_num_seen_baseline, matrix(num_seen_baseline, nrow=1))
+        all_window = rbind(all_window, matrix(stream_window, nrow=1))
+        all_window_baseline = rbind(all_window_baseline, matrix(stream_window_baseline, nrow=1))
+
+        logger.debug(tm_run.message("Completed runidx: %d" % runidx))
+
+    results = SequentialResults(num_seen=all_num_seen,
+                                # true_queried_indexes=all_queried,
+                                num_seen_baseline=all_num_seen_baseline,
+                                # true_queried_indexes_baseline=all_queried_baseline,
+                                stream_window=all_window,
+                                stream_window_baseline=all_window_baseline,
+                                aucs=aucs)
+    write_sequential_results_to_csv(results, opts)
+
+if __name__ == "__main__":
+    main()
