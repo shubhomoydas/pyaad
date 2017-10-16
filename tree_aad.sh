@@ -251,7 +251,7 @@ LOAD_MODEL=  # "--load_model"
 SAVE_MODEL=  # "--save_model"
 
 PLOT2D=
-#PLOT2D="--plot2D"
+PLOT2D="--plot2D"
 
 ${PYTHON_CMD} ${SCRIPT_PATH} --startcol=$STARTCOL --labelindex=$LABELINDEX --header \
     --filedir=$ORIG_FEATURES_PATH --datafile=$DATA_FILE \
