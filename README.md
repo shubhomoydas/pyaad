@@ -12,7 +12,8 @@ ranking
 statsmodels
 matplotlib
 
-
+Running the code:
+-----------------
 This codebase has four different algorithms:
   - The LODA based AAD
   - The Isolation Forest based AAD (**does not support streaming incremental update**)
