@@ -2,7 +2,6 @@ from r_support import *
 from loda_support import *
 from test_setups import *
 from alad import *
-from feature_bagging import *
 
 
 """
@@ -40,8 +39,8 @@ def test_loda(opts):
     a = alldata[0].fmat
     logger.debug(a.shape)
 
-    if args.randseed > 0:
-        np.random.seed(args.randseed)
+    if opts.randseed > 0:
+        np.random.seed(opts.randseed)
 
     #args.original_dims = True
     lodares = loda(a, sparsity=opts.sparsity, mink=opts.mink, maxk=opts.maxk,
@@ -153,32 +152,6 @@ def test_alad(opts):
     logger.debug("completed test_alad...")
 
 
-def test_aggregate_scores_breadth_first(opts):
-    if opts.is_simple_run():
-        num_seen = aggregate_scores_breadth_first(opts)
-        prefix = opts.get_alad_metrics_name_prefix()
-        num_seen_file = os.path.join(opts.resultsdir, "%s-breadth_first.csv" % (prefix,))
-        np.savetxt(num_seen_file, num_seen, fmt='%d', delimiter=',')
-    else:
-        fids = opts.get_fids()
-        runidxs = opts.get_runidxs()
-        n = len(fids) * len(runidxs)
-        num_seen = np.zeros(shape=(n, opts.budget+2))
-        i = 0
-        for fid in fids:
-            for runidx in runidxs:
-                opts.set_multi_run_options(fid, runidx)
-                opts.scoresfile = os.path.join(opts.scoresdir,
-                                               "%s_%d_%d.csv" % (opts.dataset, fid, runidx))
-                num_seen[i, :] = aggregate_scores_breadth_first(opts)
-                i += 1
-
-        opts.set_multi_run_options(0, 0)
-        prefix = opts.get_alad_metrics_name_prefix()
-        num_seen_file = os.path.join(opts.resultsdir, "%s-breadth_first.csv" % (prefix,))
-        np.savetxt(num_seen_file, num_seen, fmt='%d', delimiter=',')
-
-
 def run_test(args):
 
     configure_logger(args)
@@ -203,7 +176,5 @@ def run_test(args):
         test_ensemble_load(opts)
     elif args.op == "alad":
         test_alad(opts)
-    elif args.op == "aggregate_breadth_first":
-        test_aggregate_scores_breadth_first(opts)
     else:
         raise ValueError("Invalid operation: %s" % (args.op,))
