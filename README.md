@@ -32,6 +32,8 @@ example (with Isolation Forest, non-streaming):
 
     bash ./tree_aad.sh toy2 35 1 0.03 7 1 0 0 512
 
+Note: The above will generate 2D plots (tree partitions and score contours) under the 'temp' folder since <i>toy2</i> is a 2D dataset.
+
 example (with HSTrees streaming):
 
     bash ./tree_aad.sh toy2 35 1 0.03 11 1 0 1 256
