@@ -176,7 +176,22 @@ class StreamingAnomalyDetector(object):
         return 0
 
     def get_query_data(self, x=None, y=None, ha=None, hn=None, unl=None, w=None):
-        """Returns the best instance that should be queried, along with other data structures"""
+        """Returns the best instance that should be queried, along with other data structures
+
+        Args:
+            x: np.ndarray
+                input instances (labeled + unlabeled)
+            y: np.array
+                labels for instances which are already labeled, else some dummy values
+            ha: np.array
+                indexes of labeled anomalies
+            hn: np.array
+                indexes of labeled nominals
+            unl: np.array
+                unlabeled instances that should be ignored for query
+            w: np.array
+                current weight vector
+        """
         n = self.get_num_instances()
         n_feedback = self.get_num_labeled()
         if False:
@@ -189,17 +204,19 @@ class StreamingAnomalyDetector(object):
             w = self.model.w
         if unl is None:
             unl = np.zeros(0, dtype=int)
+        # the top n_feedback instances in the instance list are the labeled items
+        queried_items = append(np.arange(n_feedback), unl)
         x_transformed = self.model.transform_to_region_features(x, dense=False)
         order_anom_idxs, anom_score = self.model.order_by_score(x_transformed)
         xi = self.qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
-                                        queried_items=append(np.arange(n_feedback), unl),
+                                        queried_items=queried_items,
                                         x=x_transformed, lbls=y, anom_score=anom_score,
                                         w=w, hf=append(ha, hn),
                                         remaining_budget=self.opts.budget - n_feedback)
         if False:
-            logger.debug("ordered instances[%d]: %s\nha: %s\nhn: %s\nxi: %d" %
+            logger.debug("ordered instances[%d]: %s\nha: %s\nhn: %s\nxi: %s" %
                          (self.opts.budget, str(list(order_anom_idxs[0:self.opts.budget])),
-                          str(list(ha)), str(list(hn)), xi))
+                          str(list(ha)), str(list(hn)), str(list(xi))))
         return xi, x, y, x_transformed, ha, hn, order_anom_idxs, anom_score
 
     def move_unlabeled_to_labeled(self, xi, yi):
@@ -361,20 +378,25 @@ def run_feedback(sad, min_feedback, max_feedback, opts):
         xi, x, y, x_transformed, ha, hn, order_anom_idxs, anom_score = sad.get_query_data(unl=unl)
 
         bt = get_budget_topK(x_transformed.shape[0], opts)
+        # Note: We will ensure that the tau-th instance is atleast 10-th (or lower) ranked
         tau_rank = min(max(bt.topK, 10), x.shape[0])
-        means, vars, test, v_eval, _ = get_score_variances(x_transformed, sad.model.w,
-                                                           n_test=tau_rank,
-                                                           ordered_indexes=order_anom_idxs,
-                                                           queried_indexes=append(ha, hn))
+        means = vars = test = v_eval = qpos = None
         m_tau = v_tau = 0.
         if opts.query_confident:
+            # get the mean score and its variance for the top ranked instances
+            # excluding the instances which have already been queried
+            means, vars, test, v_eval, _ = get_score_variances(x_transformed, sad.model.w,
+                                                               n_test=tau_rank,
+                                                               ordered_indexes=order_anom_idxs,
+                                                               queried_indexes=append(ha, hn))
+            # get the mean score and its variance for the tau-th ranked instance
             m_tau, v_tau, _, _, _ = get_score_variances(x_transformed[order_anom_idxs[tau_rank]],
                                                         sad.model.w, n_test=1,
                                                         test_indexes=np.array([0], dtype=int))
-        qpos = np.where(test == xi)[0]
+            qpos = np.where(test == xi)[0]  # top-most ranked instance
         # check if we are confident that this is larger than the tau-th ranked instance
-        if not opts.query_confident or (i < min_feedback or
-                                        means[qpos] - 1 * np.sqrt(vars[qpos]) >= m_tau):
+        if (not opts.query_confident) or (i < min_feedback or
+                                          means[qpos] - 1 * np.sqrt(vars[qpos]) >= m_tau):
             seen = append(seen, [y[xi]])
             queried = append(queried, xi)
             # seen += 1
@@ -394,6 +416,7 @@ def run_feedback(sad, min_feedback, max_feedback, opts):
                 logger.debug("[%d] #feedback: %d; ha: %d; hn: %d, mnw: %d, mxw: %d; update: %f sec(s)" %
                              (i, nha + nhn, nha, nhn, min_feedback, max_feedback, tm_update.elapsed()))
         else:
+            # ignore this instance from query
             unl = append(unl, [xi])
             # logger.debug("skipping feedback for xi=%d at iter %d; unl: %s" % (xi, i, str(list(unl))))
             continue

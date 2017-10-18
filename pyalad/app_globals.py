@@ -523,7 +523,7 @@ def get_first_vals_not_marked(vals, marked, n=1, start=1):
             unmarked.append(f)
         if len(unmarked) >= n:
             break
-    return unmarked
+    return np.array(unmarked, dtype=int)
 
 
 def get_anomalies_at_top(scores, lbls, K):

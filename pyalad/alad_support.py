@@ -268,12 +268,13 @@ def alad_ensemble(ensemble, opts):
                 metrics.train_precs[k][0, i] = prec[k]
                 metrics.train_n_at_top[k][0, i] = train_n_at_top[k]
 
-        xi = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
-                                   queried_items=xis,
-                                   x=ensemble.scores, lbls=ensemble.labels,
-                                   w=detector_wts, hf=append(ha, hn),
-                                   remaining_budget=opts.budget - i)
+        xi_ = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
+                                    queried_items=xis,
+                                    x=ensemble.scores, lbls=ensemble.labels,
+                                    w=detector_wts, hf=append(ha, hn),
+                                    remaining_budget=opts.budget - i)
         # logger.debug("xi: %d" % (xi,))
+        xi = xi_[0]
         xis.append(xi)
 
         if opts.single_inst_feedback:

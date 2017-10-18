@@ -741,12 +741,13 @@ class AadForest(StreamingSupport):
                     metrics.train_precs[k][0, i] = prec[k]
                     metrics.train_n_at_top[k][0, i] = train_n_at_top[k]
 
-            xi = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
-                                       queried_items=xis,
-                                       x=x, lbls=y, y=anom_score,
-                                       w=self.w, hf=append(ha, hn),
-                                       remaining_budget=opts.budget - i)
+            xi_ = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
+                                        queried_items=xis,
+                                        x=x, lbls=y, y=anom_score,
+                                        w=self.w, hf=append(ha, hn),
+                                        remaining_budget=opts.budget - i)
             # logger.debug("xi: %d" % (xi,))
+            xi = xi_[0]
             xis.append(xi)
             metrics.test_indexes.append(qstate.test_indexes)
 

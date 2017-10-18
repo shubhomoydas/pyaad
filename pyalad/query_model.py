@@ -47,8 +47,6 @@ class QueryTop(Query):
         items = get_first_vals_not_marked(ordered_indexes, queried_items, start=0, n=n)
         if len(items) == 0:
             return None
-        elif n == 1:
-            return items[0]
         return items
 
 
@@ -79,7 +77,7 @@ class QueryGP(Query):
             # exploit
             items = get_first_vals_not_marked(ordered_indexes, queried_items, start=0, n=1)
             if len(items) > 0:
-                return items[0]
+                return items
         else:
             # explore
             x = kwargs.get("x")
@@ -95,7 +93,7 @@ class QueryGP(Query):
             qpos = np.argmax(gp_var)
             q = test_indexes[qpos]
             if False: logger.debug("query instance: %d" % q)
-            return q
+            return np.array([q], dtype=int)
         return None
 
 
@@ -132,7 +130,7 @@ class QueryScoreVar(Query):
             # exploit
             items = get_first_vals_not_marked(ordered_indexes, queried_items, start=0, n=1)
             if len(items) > 0:
-                return items[0]
+                return items
         else:
             # explore
             x = kwargs.get("x")
@@ -151,7 +149,7 @@ class QueryScoreVar(Query):
             if False:
                 logger.debug("qpos: %d, query instance: %d, var: %f, queried:%s" %
                              (qpos, q, vars[qpos], str(list(queried_items))))
-            return q
+            return np.array([q], dtype=int)
         return None
 
 
@@ -177,9 +175,10 @@ class QueryRandom(Query):
         maxpos = kwargs.get("maxpos")
         ordered_indexes = kwargs.get("ordered_indexes")
         queried_items = kwargs.get("queried_items")
-        q = sample(range(maxpos), 1)
-        item = get_first_vals_not_marked(ordered_indexes, queried_items, start=q)
-        return item
+        n = kwargs.get("n", 1)
+        q = sample(range(maxpos), n)
+        items = get_first_vals_not_marked(ordered_indexes, queried_items, start=q, n=n)
+        return items
 
 
 class QuerySequential(Query):
@@ -204,4 +203,4 @@ class QuerySequential(Query):
                                                           w=w, hf=hf,
                                                           remaining_budget=remaining_budget,
                                                           k=k, a=a, y=y, opts=self.opts)
-        return best_query_and_value.action
+        return np.array([best_query_and_value.action], dtype=int)

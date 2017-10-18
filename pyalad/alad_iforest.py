@@ -588,11 +588,12 @@ class AadIsolationForest(object):
                     metrics.train_precs[k][0, i] = prec[k]
                     metrics.train_n_at_top[k][0, i] = train_n_at_top[k]
 
-            xi = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
-                                       queried_items=xis,
-                                       x=x, lbls=y,
-                                       w=self.w, hf=append(ha, hn),
-                                       remaining_budget=opts.budget - i)
+            xi_ = qstate.get_next_query(maxpos=n, ordered_indexes=order_anom_idxs,
+                                        queried_items=xis,
+                                        x=x, lbls=y,
+                                        w=self.w, hf=append(ha, hn),
+                                        remaining_budget=opts.budget - i)
+            xi = xi_[0]
             # logger.debug("xi: %d" % (xi,))
             xis.append(xi)
 
