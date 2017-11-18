@@ -510,9 +510,9 @@ def alad(opts):
         logger.debug("topK: %d, budget: %d, tau: %f" % (topK, budget, opts.tau))
 
         if opts.is_simple_run():
-            num_seen_summary = run_alad_simple(samples, labels, opts, rnd_seed)
+            num_seen_summary = run_alad_simple(samples, labels, opts, rnd_seed=rnd_seed)
         else:
-            num_seen_summary = run_alad_multi(samples, labels, opts, rnd_seed)
+            num_seen_summary = run_alad_multi(samples, labels, opts, rnd_seed=rnd_seed)
 
         all_num_seen = rbind(all_num_seen, num_seen_summary[0])
         all_num_seen_baseline = rbind(all_num_seen_baseline, num_seen_summary[1])
