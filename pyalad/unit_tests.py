@@ -4,11 +4,6 @@ from test_setups import *
 from alad import *
 
 
-"""
-python pyalad/test_loda_units.py
-"""
-
-
 def test_load_model_csv(opts):
     opts.set_multi_run_options(1, 1)
     modelmanager = ModelManager.get_model_manager("csv")
@@ -45,6 +40,12 @@ def test_loda(opts):
     #args.original_dims = True
     lodares = loda(a, sparsity=opts.sparsity, mink=opts.mink, maxk=opts.maxk,
                    keep=opts.keep, exclude=opts.exclude, original_dims=opts.original_dims)
+
+    model = generate_model_from_loda_result(lodares, a, alldata[0].lbls)
+    logger.debug("The neg-log-lik scores in the model will be treated as ensemble scores")
+    logger.debug("model.nlls.shape: %s;\nThere are %d instances and %d ensemble members (each LODA projection is one member)" %
+                 (str(model.nlls.shape), model.nlls.shape[0], model.nlls.shape[1]))
+    logger.debug(model.nlls)
 
     print "Completed LODA..."
 
