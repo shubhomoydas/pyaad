@@ -3,14 +3,14 @@ Python version of Active Anomaly Discovery
 
 Python libraries required:
 --------------------------
-numpy
-scipy
-scikit-learn
-cvxopt
-pandas
-ranking
-statsmodels
-matplotlib
+    numpy (1.13.3)
+    scipy (0.19.1)
+    scikit-learn (0.19.1)
+    cvxopt
+    pandas (0.21.0)
+    ranking
+    statsmodels
+    matplotlib (2.1.0)
 
 Running the code:
 -----------------
