@@ -57,7 +57,7 @@ The output will have two files: file '*-baseline.csv' shows the number of true a
 
 Sample run command (AAD original (non-tree/LODA based)):
 --------------------------------------------------------
-python ./pyalad/alad.py --startcol=2 --labelindex=1 --header --randseed=42 --dataset=toy --datafile=./sampledata/toy.csv --scoresfile=./sampledata/toy_scores.csv --querytype=1 --inferencetype=3 --constrainttype=1 --sigma2=0.5 --reps=1 --reruns=1 --budget=10 --tau=0.03 --Ca=100 --Cn=1 --Cx=1000 --withprior --unifprior --runtype=simple --log_file=./temp/pyaad.log --resultsdir=./temp --ensembletype=regular --debug
+python ./pyalad/alad.py --startcol=2 --labelindex=1 --header --randseed=42 --dataset=toy --datafile=./sampledata/toy.csv --scoresfile=./sampledata/toy_scores.csv --querytype=1 --detector_type=3 --constrainttype=1 --sigma2=0.5 --reps=1 --reruns=1 --budget=10 --tau=0.03 --Ca=100 --Cn=1 --Cx=1000 --withprior --unifprior --runtype=simple --log_file=./temp/pyaad.log --resultsdir=./temp --ensembletype=regular --debug
 
 R Version
 ---------
