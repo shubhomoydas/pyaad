@@ -12,6 +12,12 @@ Python libraries required:
     statsmodels
     matplotlib (2.1.0)
 
+
+Simplified Illustration of AAD
+------------------------------
+A *much* simplified version of AAD can be found in the project https://github.com/shubhomoydas/ad_examples. Please see the README.md for that project.
+
+
 Running the code:
 -----------------
 This codebase has four different algorithms:
