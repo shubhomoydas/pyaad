@@ -38,12 +38,16 @@ def forest_aad_loss_linear(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1
         tau_rel_loss = x_tau.dot(w)
     for i in range(len(yi)):
         lbl = yi[i]
+
+        if lbl == 1:
+            n_anom += 1
+        else:
+            n_noml += 1
+
         if lbl == 1 and s[i] < qval:
             loss_a += Ca * (qval - s[i])
-            n_anom += 1
         elif lbl == 0 and s[i] >= qval:
             loss_n += Cn * (s[i] - qval)
-            n_noml += 1
         else:
             # no loss
             pass
@@ -103,14 +107,18 @@ def forest_aad_loss_gradient_linear(w, xi, yi, qval, in_constr_set=None, x_tau=N
 
     for i in range(len(yi)):
         lbl = yi[i]
+
+        if lbl == 1:
+            n_anom += 1
+        else:
+            n_noml += 1
+
         if lbl == 1 and s[i] < qval:
             # loss_a[:] = loss_a - Ca * xi[i, :]
             anom_idxs.append(i)
-            n_anom += 1
         elif lbl == 0 and s[i] >= qval:
             # loss_n[:] = loss_n + Cn * xi[i, :]
             noml_idxs.append(i)
-            n_noml += 1
         else:
             # no loss
             pass
@@ -195,12 +203,16 @@ def forest_aad_loss_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None, Ca=1.0,
     if x_tau is not None:
         tau_rel_loss = x_tau.dot(w)
     for i in range(len(yi)):
+
+        if yi[i] == 1:
+            n_anom += 1
+        else:
+            n_noml += 1
+
         if yi[i] == 1 and vals[i] < qval:
             loss_a = loss_a + Ca * np.exp(qval - vals[i])
-            n_anom += 1
         elif yi[i] == 0 and vals[i] >= qval:
             loss_n = loss_n + Cn * np.exp(vals[i] - qval)
-            n_noml += 1
         else:
             # no loss
             pass
@@ -248,16 +260,20 @@ def forest_aad_loss_gradient_exp(w, xi, yi, qval, in_constr_set=None, x_tau=None
         tau_score = x_tau.dot(w)
     for i in range(len(yi)):
         lbl = yi[i]
+
+        if lbl == 1:
+            n_anom += 1
+        else:
+            n_noml += 1
+
         if lbl == 1 and vals[i] < qval:
             exp_diff = np.minimum(np.exp(qval - vals[i]), 1000)  # element-wise
             # exp_diff = np.exp(qval - vals[i])
             loss_a[:] = loss_a - Ca * exp_diff * xi[i, :]
-            n_anom += 1
         elif lbl == 0 and vals[i] >= qval:
             exp_diff = np.minimum(np.exp(vals[i] - qval), 1000)  # element-wise
             # exp_diff = np.exp(vals[i] - qval)
             loss_n[:] = loss_n + Cn * exp_diff * xi[i, :]
-            n_noml += 1
         else:
             # no loss
             pass
