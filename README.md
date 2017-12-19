@@ -1,6 +1,9 @@
 # pyaad
 Python version of Active Anomaly Discovery
 
+# Obsolete codebase -- no longer maintained
+Please refer to (https://github.com/shubhomoydas/ad_examples) for current version.
+
 Python libraries required:
 --------------------------
     numpy (1.13.3)
